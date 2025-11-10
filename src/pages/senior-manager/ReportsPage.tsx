@@ -9,7 +9,6 @@ type Factory = Database['public']['Tables']['factories']['Row']
 type MilkCollection = Database['public']['Tables']['milk_collections']['Row']
 type ProductionBatch = Database['public']['Tables']['production_batches']['Row']
 type Expense = Database['public']['Tables']['expenses']['Row']
-type SalesOrder = Database['public']['Tables']['sales_orders']['Row']
 
 interface ReportData {
   factory_id: string
@@ -107,9 +106,9 @@ export default function SeniorManagerReportsPage() {
             .gte('expense_date', monthStart.toISOString().split('T')[0])
             .lte('expense_date', monthEnd.toISOString().split('T')[0])
 
-          const totalMilkRevenue = milkCollections?.reduce((sum, mc) => sum + (mc.total_amount || 0), 0) || 0
-          const totalSalesRevenue = salesOrders?.reduce((sum, so) => sum + (so.total || 0), 0) || 0
-          const totalExpenses = expenses?.reduce((sum, e) => sum + (e.total || 0), 0) || 0
+          const totalMilkRevenue = milkCollections?.reduce((sum, mc) => sum + ((mc as any).total_amount || 0), 0) || 0
+          const totalSalesRevenue = salesOrders?.reduce((sum, so) => sum + ((so as any).total || 0), 0) || 0
+          const totalExpenses = expenses?.reduce((sum, e) => sum + ((e as any).total || 0), 0) || 0
           const totalRevenue = totalMilkRevenue + totalSalesRevenue
 
           return {
@@ -160,14 +159,14 @@ export default function SeniorManagerReportsPage() {
           const { count: farmersCount } = await supabase
             .from('farmers')
             .select('*', { count: 'exact', head: true })
-            .eq('factory_id', factory.id)
+            .eq('factory_id', (factory as any).id)
             .eq('is_active', true)
 
           // Get milk collections data
           const { data: milkCollections } = await supabase
             .from('milk_collections')
             .select('quantity_liters, total_amount')
-            .eq('factory_id', factory.id)
+            .eq('factory_id', (factory as any).id)
             .gte('collection_date', dateRange.from)
             .lte('collection_date', dateRange.to)
 
@@ -175,7 +174,7 @@ export default function SeniorManagerReportsPage() {
           const { data: production } = await supabase
             .from('production_batches')
             .select('cheese_produced_kg, milk_used_liters')
-            .eq('factory_id', factory.id)
+            .eq('factory_id', (factory as any).id)
             .gte('production_date', dateRange.from)
             .lte('production_date', dateRange.to)
 
@@ -183,7 +182,7 @@ export default function SeniorManagerReportsPage() {
           const { data: expenses } = await supabase
             .from('expenses')
             .select('total')
-            .eq('factory_id', factory.id)
+            .eq('factory_id', (factory as any).id)
             .gte('expense_date', dateRange.from)
             .lte('expense_date', dateRange.to)
 
@@ -191,14 +190,14 @@ export default function SeniorManagerReportsPage() {
           const { data: salesOrders } = await supabase
             .from('sales_orders')
             .select('total')
-            .eq('factory_id', factory.id)
+            .eq('factory_id', (factory as any).id)
             .gte('order_date', dateRange.from)
             .lte('order_date', dateRange.to)
 
           // Calculate totals
-          const totalMilkCollected = milkCollections?.reduce((sum, mc) => sum + (mc.quantity_liters || 0), 0) || 0
-          const totalMilkRevenue = milkCollections?.reduce((sum, mc) => sum + (mc.total_amount || 0), 0) || 0
-          const totalProduction = production?.reduce((sum, p) => sum + (p.cheese_produced_kg || 0), 0) || 0
+          const totalMilkCollected = milkCollections?.reduce((sum, mc) => sum + ((mc as any).quantity_liters || 0), 0) || 0
+          const totalMilkRevenue = milkCollections?.reduce((sum, mc) => sum + ((mc as any).total_amount || 0), 0) || 0
+          const totalProduction = production?.reduce((sum, p) => sum + ((p as any).cheese_produced_kg || 0), 0) || 0
           const totalExpenses = expenses?.reduce((sum, e) => sum + ((e as any).total || 0), 0) || 0
           const totalSalesRevenue = salesOrders?.reduce((sum, so) => sum + ((so as any).total || 0), 0) || 0
           const totalRevenue = totalMilkRevenue + totalSalesRevenue

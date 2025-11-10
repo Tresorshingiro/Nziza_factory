@@ -49,12 +49,12 @@ export const updateMilkInventoryOnCollection = async (
 
       // Record stock movement
       await recordStockMovement(
-        (existingStock as any).id,
-        factoryId,
+        (existingStock as any).id as string,
+        factoryId as string,
         'in',
-        quantityLiters,
+        quantityLiters as number,
         'Milk collection',
-        userId
+        userId as string
       )
 
       return {
@@ -80,7 +80,7 @@ export const updateMilkInventoryOnCollection = async (
 
       const { data: newStock, error: insertError } = await supabase
         .from('stock')
-        .insert([stockData as any])
+        .insert(stockData as any)
         .select()
         .single()
 
@@ -88,12 +88,12 @@ export const updateMilkInventoryOnCollection = async (
 
       // Record stock movement
       await recordStockMovement(
-        (newStock as any).id,
-        factoryId,
+        (newStock as any).id as string,
+        factoryId as string,
         'in',
-        quantityLiters,
+        quantityLiters as number,
         'Initial milk collection',
-        userId
+        userId as string
       )
 
       return {
@@ -156,10 +156,10 @@ export const reduceMilkInventoryOnProduction = async (
 
     // Record stock movement
     await recordStockMovement(
-      (milkStock as any).id,
-      factoryId,
+      (milkStock as any).id as string,
+      factoryId as string,
       'out',
-      milkUsedLiters,
+      milkUsedLiters as number,
       `Used in production${batchId ? ` (Batch: ${batchId})` : ''}`,
       userId,
       batchId,
