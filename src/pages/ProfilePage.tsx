@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { User, Mail, Phone, Shield, Calendar, Camera, Save, X } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { supabase } from '../lib/supabase'
@@ -50,7 +50,7 @@ export default function ProfilePage() {
     
     setLoading(true)
     try {
-      const { data, error } = await supabase
+      const { data, error }: any = await supabase
         .from('users')
         .update({
           full_name: profileData.full_name,
@@ -82,14 +82,6 @@ export default function ProfilePage() {
       avatar_url: user?.avatar_url || null
     })
     setIsEditing(false)
-  }
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    })
   }
 
   if (!user) {
