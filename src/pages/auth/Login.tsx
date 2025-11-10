@@ -37,15 +37,7 @@ export default function Login() {
     }
   }
 
-  const quickFill = (role: 'boss' | 'manager' | 'factory') => {
-    const credentials = {
-      boss: { email: 'boss@nziza.com', password: 'boss123456' },
-      manager: { email: 'manager@nziza.com', password: 'manager123456' },
-      factory: { email: 'factory@nziza.com', password: 'factory123456' }
-    }
-    setEmail(credentials[role].email)
-    setPassword(credentials[role].password)
-  }
+
 
   return (
     <div className="min-h-screen flex">
@@ -151,40 +143,6 @@ export default function Login() {
             <div className="text-center mb-8">
               <h2 className="text-3xl font-bold text-gray-900 mb-2">Sign In</h2>
               <p className="text-gray-600">Enter your credentials to access your account</p>
-            </div>
-
-            {/* Demo Credentials */}
-            <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl">
-              <p className="text-sm font-semibold text-blue-900 mb-3 flex items-center">
-                <Sparkles className="w-4 h-4 mr-2" />
-                Quick Login (Demo Accounts)
-              </p>
-              <div className="grid grid-cols-1 gap-2">
-                <button
-                  type="button"
-                  onClick={() => quickFill('boss')}
-                  className="text-left px-3 py-2 bg-white hover:bg-blue-50 rounded-lg transition-colors text-xs border border-blue-100"
-                >
-                  <span className="font-semibold text-blue-900">Main Boss</span>
-                  <span className="text-blue-600 block">boss@nziza.com</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => quickFill('manager')}
-                  className="text-left px-3 py-2 bg-white hover:bg-blue-50 rounded-lg transition-colors text-xs border border-blue-100"
-                >
-                  <span className="font-semibold text-blue-900">Senior Manager</span>
-                  <span className="text-blue-600 block">manager@nziza.com</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => quickFill('factory')}
-                  className="text-left px-3 py-2 bg-white hover:bg-blue-50 rounded-lg transition-colors text-xs border border-blue-100"
-                >
-                  <span className="font-semibold text-blue-900">Factory Manager</span>
-                  <span className="text-blue-600 block">factory@nziza.com</span>
-                </button>
-              </div>
             </div>
 
             <form onSubmit={handleLogin} className="space-y-5">
