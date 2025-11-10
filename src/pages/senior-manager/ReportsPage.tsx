@@ -199,14 +199,14 @@ export default function SeniorManagerReportsPage() {
           const totalMilkCollected = milkCollections?.reduce((sum, mc) => sum + (mc.quantity_liters || 0), 0) || 0
           const totalMilkRevenue = milkCollections?.reduce((sum, mc) => sum + (mc.total_amount || 0), 0) || 0
           const totalProduction = production?.reduce((sum, p) => sum + (p.cheese_produced_kg || 0), 0) || 0
-          const totalExpenses = expenses?.reduce((sum, e) => sum + (e.total || 0), 0) || 0
-          const totalSalesRevenue = salesOrders?.reduce((sum, so) => sum + (so.total || 0), 0) || 0
+          const totalExpenses = expenses?.reduce((sum, e) => sum + ((e as any).total || 0), 0) || 0
+          const totalSalesRevenue = salesOrders?.reduce((sum, so) => sum + ((so as any).total || 0), 0) || 0
           const totalRevenue = totalMilkRevenue + totalSalesRevenue
           const avgMilkPrice = totalMilkCollected > 0 ? totalMilkRevenue / totalMilkCollected : 0
 
           return {
-            factory_id: factory.id,
-            factory_name: factory.name,
+            factory_id: (factory as any).id,
+            factory_name: (factory as any).name,
             total_revenue: totalRevenue,
             total_expenses: totalExpenses,
             profit: totalRevenue - totalExpenses,
@@ -217,10 +217,10 @@ export default function SeniorManagerReportsPage() {
             avg_milk_price: avgMilkPrice
           } as ReportData
         } catch (error) {
-          console.error(`Error fetching data for factory ${factory.name}:`, error)
+          console.error(`Error fetching data for factory ${(factory as any).name}:`, error)
           return {
-            factory_id: factory.id,
-            factory_name: factory.name,
+            factory_id: (factory as any).id,
+            factory_name: (factory as any).name,
             total_revenue: 0,
             total_expenses: 0,
             profit: 0,

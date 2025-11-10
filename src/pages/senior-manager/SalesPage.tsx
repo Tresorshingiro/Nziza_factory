@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { Search, DollarSign, ShoppingCart, TrendingUp, Calendar, Trash2, Eye } from 'lucide-react'
 import FactorySelector from '../../components/ui/FactorySelector'
 import { supabase } from '../../lib/supabase'
-import { useAuthStore } from '../../stores/authStore'
 import toast from 'react-hot-toast'
 import type { Database } from '../../types/database.types'
 
@@ -16,7 +15,6 @@ interface SalesOrderWithDetails extends SalesOrderRow {
 }
 
 export default function SeniorManagerSalesPage() {
-  const { user } = useAuthStore()
   const [sales, setSales] = useState<SalesOrderWithDetails[]>([])
   const [selectedFactory, setSelectedFactory] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -366,8 +364,8 @@ export default function SeniorManagerSalesPage() {
             >
               <option value="all">All Statuses</option>
               <option value="pending">Pending</option>
-              <option value="confirmed">Confirmed</option>
-              <option value="delivered">Delivered</option>
+              <option value="processing">Processing</option>
+              <option value="completed">Completed</option>
               <option value="cancelled">Cancelled</option>
             </select>
           </div>
@@ -452,9 +450,9 @@ export default function SeniorManagerSalesPage() {
                     </td>
                     <td className="px-6 py-4">
                       <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                        sale.status === 'confirmed'
+                        sale.status === 'completed'
                           ? 'bg-green-100 text-green-800'
-                          : sale.status === 'delivered'
+                          : sale.status === 'processing'
                           ? 'bg-blue-100 text-blue-800'
                           : sale.status === 'pending'
                           ? 'bg-yellow-100 text-yellow-800'
@@ -528,9 +526,9 @@ export default function SeniorManagerSalesPage() {
                         {sale.payment_status}
                       </span>
                       <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                        sale.status === 'confirmed'
+                        sale.status === 'completed'
                           ? 'bg-green-100 text-green-800'
-                          : sale.status === 'delivered'
+                          : sale.status === 'processing'
                           ? 'bg-blue-100 text-blue-800'
                           : sale.status === 'pending'
                           ? 'bg-yellow-100 text-yellow-800'
@@ -709,9 +707,9 @@ export default function SeniorManagerSalesPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Status</label>
                   <span className={`inline-flex px-2 py-1 mt-1 text-xs font-medium rounded-full ${
-                    viewingSale.status === 'confirmed'
+                    viewingSale.status === 'completed'
                       ? 'bg-green-100 text-green-800'
-                      : viewingSale.status === 'delivered'
+                      : viewingSale.status === 'processing'
                       ? 'bg-blue-100 text-blue-800'
                       : viewingSale.status === 'pending'
                       ? 'bg-yellow-100 text-yellow-800'
