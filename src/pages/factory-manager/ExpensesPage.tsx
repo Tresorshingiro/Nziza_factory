@@ -435,6 +435,23 @@ export default function ExpensesPage() {
     return matchesSearch && matchesStatus
   })
 
+  // Pagination logic
+  const totalPages = Math.ceil(filteredExpenses.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedExpenses = filteredExpenses.slice(startIndex, endIndex)
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage)
+    }
+  }
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, statusFilter])
+
   if (loading) {
     return <div className="flex justify-center items-center h-64">Loading...</div>
   }
@@ -542,7 +559,7 @@ export default function ExpensesPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredExpenses.map((expense) => (
+              {paginatedExpenses.map((expense) => (
                 <tr key={expense.id} className="hover:bg-gray-50">
                   <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                     {expense.expense_number}
@@ -642,6 +659,18 @@ export default function ExpensesPage() {
           )}
         </div>
       </Card>
+
+      {/* Pagination */}
+      {filteredExpenses.length > 0 && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={filteredExpenses.length}
+          itemsPerPage={itemsPerPage}
+          onPageChange={handlePageChange}
+          className="mt-6"
+        />
+      )}
 
       {/* Add/Edit Expense Modal */}
       {showForm && (
