@@ -4,8 +4,17 @@ import { useAuthStore } from '../../stores/authStore'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { Badge } from '../../components/ui/badge'
-import { Plus, Search, Calendar, DollarSign, Package, FileText, TrendingUp } from 'lucide-react'
+import { Plus, Search, Calendar, DollarSign, Package, FileText, TrendingUp, Trash2, Download, ChevronLeft, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
+import jsPDF from 'jspdf'
+import 'jspdf-autotable'
+
+// Define proper types for jsPDF with autoTable
+declare module 'jspdf' {
+  interface jsPDF {
+    autoTable: (options: any) => jsPDF
+  }
+}
 
 type OrderStatus = 'pending' | 'processing' | 'completed' | 'cancelled'
 type PaymentStatus = 'pending' | 'partial' | 'paid' | 'overdue'
@@ -107,6 +116,10 @@ export default function SalesPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [dateFilter, setDateFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<OrderStatus | ''>('')
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(5)
   
   // Analytics data
   const [analytics, setAnalytics] = useState({
@@ -409,6 +422,11 @@ export default function SalesPage() {
     calculateAnalytics()
   }, [orders])
 
+  // Reset pagination when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, dateFilter, statusFilter])
+
   const addOrderItem = () => {
     setFormData({
       ...formData,
@@ -607,6 +625,159 @@ export default function SalesPage() {
     }
   }
 
+  const deleteOrder = async (orderId: string) => {
+    if (!window.confirm('Are you sure you want to delete this order? This action cannot be undone.')) {
+      return
+    }
+
+    try {
+      // First delete order items
+      const { error: itemsError } = await supabase
+        .from('sales_order_items')
+        .delete()
+        .eq('order_id', orderId)
+
+      if (itemsError) throw itemsError
+
+      // Then delete the order
+      const { error: orderError } = await supabase
+        .from('sales_orders')
+        .delete()
+        .eq('id', orderId)
+
+      if (orderError) throw orderError
+      
+      toast.success('Order deleted successfully')
+      fetchOrders()
+    } catch (error) {
+      console.error('Error deleting order:', error)
+      toast.error('Failed to delete order')
+    }
+  }
+
+  const downloadInvoicePDF = async (order: SalesOrder) => {
+    try {
+      // Get factory info
+      const { data: factory } = await supabase
+        .from('factories')
+        .select('name, address, phone, email')
+        .eq('id', user?.factory_id)
+        .single()
+
+      const doc = new jsPDF()
+      const pageWidth = doc.internal.pageSize.getWidth()
+      
+      // Colors
+      const primaryColor = [245, 158, 11] // Amber-500
+      const textColor = [31, 41, 55] // Gray-800
+      const lightGray = [243, 244, 246] // Gray-100
+      
+      // Header Section
+      doc.setFillColor(...primaryColor)
+      doc.rect(0, 0, pageWidth, 40, 'F')
+      
+      // Company Logo Area
+      doc.setFillColor(255, 255, 255)
+      doc.rect(14, 8, 24, 24, 'F')
+      doc.setTextColor(245, 158, 11)
+      doc.setFontSize(16)
+      doc.setFont('helvetica', 'bold')
+      doc.text('NF', 26, 24)
+      
+      // Company Details
+      doc.setTextColor(255, 255, 255)
+      doc.setFontSize(20)
+      doc.setFont('helvetica', 'bold')
+      doc.text('NZIZA FACTORY', 45, 20)
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'normal')
+      doc.text(factory?.name || 'Professional Dairy Production', 45, 28)
+      doc.text(factory?.address || 'Rwanda', 45, 35)
+      
+      // Invoice Title
+      doc.setFillColor(...lightGray)
+      doc.rect(0, 40, pageWidth, 25, 'F')
+      doc.setTextColor(...textColor)
+      doc.setFontSize(24)
+      doc.setFont('helvetica', 'bold')
+      doc.text('INVOICE', 14, 57)
+      
+      // Invoice Details
+      const startY = 75
+      doc.setFontSize(12)
+      doc.setFont('helvetica', 'bold')
+      doc.text('BILL TO:', 14, startY)
+      doc.text('INVOICE DETAILS:', pageWidth - 80, startY)
+      
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+      
+      // Customer info
+      doc.text(order.customer?.name || 'Customer', 14, startY + 10)
+      doc.text(`Customer Code: ${order.customer?.customer_code || 'N/A'}`, 14, startY + 18)
+      doc.text(`Phone: ${order.customer?.phone || 'N/A'}`, 14, startY + 26)
+      
+      // Invoice info
+      doc.text(`Invoice #: ${order.order_number}`, pageWidth - 80, startY + 10)
+      doc.text(`Date: ${new Date(order.order_date).toLocaleDateString()}`, pageWidth - 80, startY + 18)
+      doc.text(`Due Date: ${order.delivery_date ? new Date(order.delivery_date).toLocaleDateString() : 'N/A'}`, pageWidth - 80, startY + 26)
+      doc.text(`Status: ${order.status.toUpperCase()}`, pageWidth - 80, startY + 34)
+      
+      // Items Table
+      const tableStartY = startY + 50
+      const tableHeaders = ['Item', 'Quantity', 'Unit Price', 'Discount', 'Subtotal']
+      const tableData = order.sales_order_items?.map(item => [
+        item.cheese_type,
+        `${item.quantity} kg`,
+        formatCurrency(item.unit_price),
+        formatCurrency(item.discount),
+        formatCurrency(item.subtotal)
+      ]) || []
+      
+      doc.autoTable({
+        head: [tableHeaders],
+        body: tableData,
+        startY: tableStartY,
+        theme: 'grid',
+        headStyles: { fillColor: primaryColor, textColor: 255 },
+        styles: { fontSize: 10 },
+        margin: { left: 14, right: 14 },
+      })
+      
+      // Totals
+      const finalY = (doc as any).lastAutoTable.finalY + 20
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(12)
+      
+      const totalsX = pageWidth - 80
+      doc.text(`Subtotal: ${formatCurrency(order.subtotal)}`, totalsX, finalY)
+      doc.text(`Tax: ${formatCurrency(order.tax)}`, totalsX, finalY + 10)
+      doc.text(`Discount: ${formatCurrency(order.discount)}`, totalsX, finalY + 20)
+      
+      doc.setFontSize(14)
+      doc.text(`TOTAL: ${formatCurrency(order.total)}`, totalsX, finalY + 35)
+      
+      if (order.total_paid && order.total_paid > 0) {
+        doc.text(`Paid: ${formatCurrency(order.total_paid)}`, totalsX, finalY + 45)
+        doc.text(`Balance: ${formatCurrency((order.balance_due || order.total))}`, totalsX, finalY + 55)
+      }
+      
+      // Footer
+      doc.setFontSize(8)
+      doc.setFont('helvetica', 'normal')
+      doc.text('Thank you for your business!', 14, pageWidth - 20)
+      doc.text(`Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, 14, pageWidth - 10)
+      
+      // Download
+      doc.save(`invoice-${order.order_number}.pdf`)
+      toast.success('Invoice PDF downloaded successfully')
+      
+    } catch (error) {
+      console.error('Error generating PDF:', error)
+      toast.error('Failed to generate invoice PDF')
+    }
+  }
+
   const getStatusBadge = (status: OrderStatus) => {
     switch (status) {
       case 'pending':
@@ -656,6 +827,18 @@ export default function SalesPage() {
 
     return matchesSearch && matchesDate && matchesStatus
   })
+
+  // Pagination logic
+  const totalPages = Math.ceil(filteredOrders.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedOrders = filteredOrders.slice(startIndex, endIndex)
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage)
+    }
+  }
 
   if (loading) {
     return (
@@ -812,7 +995,7 @@ export default function SalesPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {filteredOrders.map((order) => (
+                    {paginatedOrders.map((order) => (
                       <tr key={order.id} className="hover:bg-gray-50">
                         <td className="py-3 px-4">
                           <div className="font-medium text-gray-900">{order.order_number}</div>
@@ -894,7 +1077,7 @@ export default function SalesPage() {
                           </div>
                         </td>
                         <td className="py-3 px-4">
-                          <div className="flex space-x-1">
+                          <div className="flex flex-wrap gap-1">
                             <button
                               onClick={() => handleView(order)}
                               className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 transition-colors duration-200"
@@ -912,21 +1095,28 @@ export default function SalesPage() {
                                 className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-md text-green-700 bg-green-100 hover:bg-green-200 transition-colors duration-200"
                                 title="Record Payment"
                               >
-                                <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-                                </svg>
+                                <DollarSign className="w-3 h-3 mr-1" />
                                 Pay
                               </button>
                             )}
                             <button
+                              onClick={() => downloadInvoicePDF(order)}
                               className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-md text-purple-700 bg-purple-100 hover:bg-purple-200 transition-colors duration-200"
-                              title="Generate Invoice"
+                              title="Download Invoice PDF"
                             >
-                              <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                              </svg>
+                              <Download className="w-3 h-3 mr-1" />
                               Invoice
                             </button>
+                            {order.status === 'pending' && (
+                              <button
+                                onClick={() => deleteOrder(order.id)}
+                                className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 transition-colors duration-200"
+                                title="Delete Order"
+                              >
+                                <Trash2 className="w-3 h-3 mr-1" />
+                                Delete
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -937,7 +1127,7 @@ export default function SalesPage() {
 
               {/* Mobile Card View */}
               <div className="lg:hidden space-y-4">
-                {filteredOrders.map((order) => (
+                {paginatedOrders.map((order) => (
                   <div key={order.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
                     <div className="flex items-start justify-between mb-3">
                       <div>
@@ -984,7 +1174,7 @@ export default function SalesPage() {
                       )}
                     </div>
                     
-                    <div className="flex justify-end space-x-1 pt-3 border-t border-gray-100">
+                    <div className="flex flex-wrap gap-1 pt-3 border-t border-gray-100">
                       <button
                         onClick={() => handleView(order)}
                         className="inline-flex items-center px-3 py-2 text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 transition-colors duration-200"
@@ -1002,21 +1192,28 @@ export default function SalesPage() {
                           className="inline-flex items-center px-3 py-2 text-sm font-medium rounded-md text-green-700 bg-green-100 hover:bg-green-200 transition-colors duration-200"
                           title="Record Payment"
                         >
-                          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-                          </svg>
+                          <DollarSign className="w-4 h-4 mr-1" />
                           Pay
                         </button>
                       )}
                       <button
+                        onClick={() => downloadInvoicePDF(order)}
                         className="inline-flex items-center px-3 py-2 text-sm font-medium rounded-md text-purple-700 bg-purple-100 hover:bg-purple-200 transition-colors duration-200"
-                        title="Generate Invoice"
+                        title="Download Invoice PDF"
                       >
-                        <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
+                        <Download className="w-4 h-4 mr-1" />
                         Invoice
                       </button>
+                      {order.status === 'pending' && (
+                        <button
+                          onClick={() => deleteOrder(order.id)}
+                          className="inline-flex items-center px-3 py-2 text-sm font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 transition-colors duration-200"
+                          title="Delete Order"
+                        >
+                          <Trash2 className="w-4 h-4 mr-1" />
+                          Delete
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1025,6 +1222,69 @@ export default function SalesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {filteredOrders.length > itemsPerPage && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-700">
+                Showing {startIndex + 1} to {Math.min(endIndex, filteredOrders.length)} of {filteredOrders.length} orders
+              </div>
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="flex items-center gap-1"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Previous
+                </Button>
+                
+                <div className="flex items-center space-x-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum: number;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => handlePageChange(pageNum)}
+                        className="w-8 h-8 p-0"
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="flex items-center gap-1"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* View Order Modal */}
       {isViewModalOpen && selectedOrder && (

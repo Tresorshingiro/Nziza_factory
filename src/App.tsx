@@ -28,9 +28,10 @@ import StockPage from './pages/factory-manager/StockPage'
 import EmployeesPage from './pages/factory-manager/EmployeesPage'
 import FarmersPage from './pages/factory-manager/FarmersPage'
 import ReportsPage from './pages/factory-manager/ReportsPage'
-
-// Management pages - Factory Manager
 import CustomersPage from './pages/factory-manager/CustomersPage'
+import SalesPage from './pages/factory-manager/SalesPage'
+import ExpensesPage from './pages/factory-manager/ExpensesPage'
+import SuppliersPage from './pages/factory-manager/SuppliersPage'
 
 // Senior Manager specific pages
 import CreateFactoryManagerPage from './pages/senior-manager/CreateFactoryManagerPage'
@@ -204,13 +205,13 @@ function App() {
            user?.role === 'senior_manager' ? <SeniorReportsPage /> : <ReportsPage />}
         </ProtectedRoute>} />
         <Route path="/sales" element={<ProtectedRoute roles={['factory_manager', 'senior_manager', 'main_boss']}>
-          {user?.role === 'senior_manager' ? <SeniorSalesPage /> : <CustomersPage />}
+          {user?.role === 'senior_manager' ? <SeniorSalesPage /> : <SalesPage />}
         </ProtectedRoute>} />
         <Route path="/expenses" element={<ProtectedRoute roles={['factory_manager', 'senior_manager', 'main_boss']}>
-          {user?.role === 'senior_manager' ? <SeniorExpensesPage /> : <CustomersPage />}
+          {user?.role === 'senior_manager' ? <SeniorExpensesPage /> : <ExpensesPage />}
         </ProtectedRoute>} />
         <Route path="/suppliers" element={<ProtectedRoute roles={['factory_manager', 'senior_manager', 'main_boss']}>
-          {user?.role === 'senior_manager' ? <SeniorSuppliersPage /> : <CustomersPage />}
+          {user?.role === 'senior_manager' ? <SeniorSuppliersPage /> : <SuppliersPage />}
         </ProtectedRoute>} />
         <Route path="/inventories" element={<ProtectedRoute roles={['senior_manager', 'main_boss']}>
           <SeniorInventoriesPage />

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Pagination } from '../../components/ui/pagination'
 
 // Types
 type PaymentMethod = 'cash' | 'bank_transfer' | 'mobile_money' | 'check'
@@ -63,6 +64,10 @@ export default function MilkCollectionPage() {
   const [selectedCollection, setSelectedCollection] = useState<MilkCollection | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [dateFilter, setDateFilter] = useState('')
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(5)
 
   const [formData, setFormData] = useState({
     farmer_id: '',
@@ -358,6 +363,23 @@ export default function MilkCollectionPage() {
     return matchesSearch && matchesDate
   })
 
+  // Pagination logic
+  const totalPages = Math.ceil(filteredCollections.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedCollections = filteredCollections.slice(startIndex, endIndex)
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage)
+    }
+  }
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, dateFilter])
+
   const totalQuantity = filteredCollections.reduce((sum, collection) => sum + collection.quantity_liters, 0)
   const totalValue = filteredCollections.reduce((sum, collection) => sum + collection.total_amount, 0)
   const averagePrice = filteredCollections.length > 0 
@@ -495,7 +517,7 @@ export default function MilkCollectionPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredCollections.map((collection) => (
+                      {paginatedCollections.map((collection) => (
                         <tr key={collection.id} className="border-b border-gray-100 hover:bg-gray-50">
                           <td className="py-3 px-4 text-gray-900">
                             {new Date(collection.collection_date).toLocaleDateString()}
@@ -548,7 +570,7 @@ export default function MilkCollectionPage() {
 
                 {/* Mobile Cards */}
                 <div className="lg:hidden space-y-4">
-                  {filteredCollections.map((collection) => (
+                  {paginatedCollections.map((collection) => (
                     <div key={collection.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
                       <div className="flex items-center justify-between mb-3">
                         <h3 className="font-semibold text-gray-900">{collection.farmers?.name}</h3>
@@ -609,6 +631,18 @@ export default function MilkCollectionPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Pagination */}
+        {filteredCollections.length > 0 && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredCollections.length}
+            itemsPerPage={itemsPerPage}
+            onPageChange={handlePageChange}
+            className="mt-6"
+          />
+        )}
 
         {/* Add/Edit Modal */}
         {showAddModal && (

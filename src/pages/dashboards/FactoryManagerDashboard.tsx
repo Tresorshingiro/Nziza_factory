@@ -19,6 +19,32 @@ import {
   ArrowDownRight
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Pie } from 'react-chartjs-2'
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement,
+} from 'chart.js'
+
+// Register Chart.js components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement
+)
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
@@ -477,44 +503,67 @@ export default function FactoryManagerDashboard() {
           <CardContent>
             <div className="h-64 w-full">
               {chartData.expenseChart.length > 0 ? (
-                <div className="flex flex-col h-full">
-                  {/* Simple Pie Chart Representation */}
-                  <div className="flex-1 flex items-center justify-center">
-                    <div className="relative w-40 h-40">
-                      {chartData.expenseChart.map((expense, index) => {
-                        const colors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-purple-500', 'bg-pink-500']
-                        const color = colors[index % colors.length]
-                        return (
-                          <div key={index} className={`absolute inset-0 rounded-full ${color} opacity-80`} 
-                               style={{
-                                 transform: `rotate(${(chartData.expenseChart.slice(0, index).reduce((sum, e) => sum + e.percentage, 0) * 3.6)}deg)`,
-                                 clipPath: `polygon(50% 50%, 50% 0%, ${50 + Math.cos((expense.percentage * 3.6) * Math.PI / 180) * 50}% ${50 - Math.sin((expense.percentage * 3.6) * Math.PI / 180) * 50}%)`
-                               }}
-                          />
-                        )
-                      })}
-                    </div>
-                  </div>
-                  {/* Legend */}
-                  <div className="space-y-2">
-                    {chartData.expenseChart.map((expense, index) => {
-                      const colors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-purple-500', 'bg-pink-500']
-                      const color = colors[index % colors.length]
-                      return (
-                        <div key={index} className="flex items-center justify-between text-sm">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-3 h-3 rounded ${color}`}></div>
-                            <span className="text-gray-600">{expense.category}</span>
-                          </div>
-                          <div className="flex gap-2">
-                            <span className="font-medium">{formatCurrency(expense.amount)}</span>
-                            <span className="text-gray-500">({expense.percentage.toFixed(1)}%)</span>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
+                <Pie
+                  data={{
+                    labels: chartData.expenseChart.map(expense => expense.category),
+                    datasets: [
+                      {
+                        data: chartData.expenseChart.map(expense => expense.amount),
+                        backgroundColor: [
+                          '#ef4444', // red-500
+                          '#3b82f6', // blue-500
+                          '#10b981', // green-500
+                          '#f59e0b', // yellow-500
+                          '#8b5cf6', // purple-500
+                          '#ec4899', // pink-500
+                          '#f97316', // orange-500
+                          '#06b6d4', // cyan-500
+                        ],
+                        borderColor: [
+                          '#dc2626', // red-600
+                          '#2563eb', // blue-600
+                          '#059669', // green-600
+                          '#d97706', // yellow-600
+                          '#7c3aed', // purple-600
+                          '#db2777', // pink-600
+                          '#ea580c', // orange-600
+                          '#0891b2', // cyan-600
+                        ],
+                        borderWidth: 2,
+                      },
+                    ],
+                  }}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: {
+                        position: 'bottom' as const,
+                        labels: {
+                          usePointStyle: true,
+                          padding: 15,
+                          font: {
+                            size: 12
+                          }
+                        }
+                      },
+                      tooltip: {
+                        callbacks: {
+                          label: function(context) {
+                            const total = chartData.expenseChart.reduce((sum, expense) => sum + expense.amount, 0)
+                            const percentage = ((context.parsed / total) * 100).toFixed(1)
+                            return `${context.label}: ${formatCurrency(context.parsed)} (${percentage}%)`
+                          }
+                        }
+                      }
+                    },
+                    elements: {
+                      arc: {
+                        hoverOffset: 8
+                      }
+                    }
+                  }}
+                />
               ) : (
                 <div className="flex items-center justify-center h-full text-gray-500">
                   <div className="text-center">

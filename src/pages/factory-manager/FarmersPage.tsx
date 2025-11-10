@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../stores/authStore'
+import { Pagination } from '../../components/ui/pagination'
 import toast from 'react-hot-toast'
 import { 
   Plus, 
@@ -43,6 +44,10 @@ export default function FarmersPage() {
   const [showViewModal, setShowViewModal] = useState(false)
   const [selectedFarmer, setSelectedFarmer] = useState<Farmer | null>(null)
   const [isEditing, setIsEditing] = useState(false)
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(5)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -92,6 +97,23 @@ export default function FarmersPage() {
     farmer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     farmer.phone?.toLowerCase().includes(searchTerm.toLowerCase())
   )
+
+  // Pagination logic
+  const totalPages = Math.ceil(filteredFarmers.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedFarmers = filteredFarmers.slice(startIndex, endIndex)
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage)
+    }
+  }
+
+  // Reset pagination when search changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm])
 
   // Calculate stats
   const stats = {
@@ -326,7 +348,7 @@ export default function FarmersPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {filteredFarmers.map((farmer) => (
+                    {paginatedFarmers.map((farmer) => (
                       <tr key={farmer.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="font-medium text-gray-900">{farmer.name}</div>
@@ -386,7 +408,7 @@ export default function FarmersPage() {
 
               {/* Mobile Card View */}
               <div className="lg:hidden space-y-4">
-                {filteredFarmers.map((farmer) => (
+                {paginatedFarmers.map((farmer) => (
                   <div key={farmer.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
                     <div className="flex items-start justify-between mb-3">
                       <div>
@@ -456,6 +478,18 @@ export default function FarmersPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {filteredFarmers.length > 0 && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={filteredFarmers.length}
+          itemsPerPage={itemsPerPage}
+          onPageChange={handlePageChange}
+          className="mt-6"
+        />
+      )}
 
       {/* Add/Edit Modal */}
       {showAddModal && (

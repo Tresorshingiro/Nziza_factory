@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/authStore'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { Badge } from '../../components/ui/badge'
+import { Pagination } from '../../components/ui/pagination'
 import { Plus, Search, Phone, Mail, MapPin } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -45,6 +46,10 @@ export default function CustomersPage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isViewModalOpen, setIsViewModalOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(5)
   const [formData, setFormData] = useState<CustomerInsert>({
     name: '',
     customer_code: '',
@@ -219,6 +224,23 @@ export default function CustomersPage() {
     customer.phone.includes(searchTerm)
   )
 
+  // Pagination logic
+  const totalPages = Math.ceil(filteredCustomers.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedCustomers = filteredCustomers.slice(startIndex, endIndex)
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage)
+    }
+  }
+
+  // Reset pagination when search term changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -289,7 +311,7 @@ export default function CustomersPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {filteredCustomers.map((customer) => (
+                    {paginatedCustomers.map((customer) => (
                       <tr key={customer.id} className="hover:bg-gray-50">
                         <td className="py-3 px-4">
                           <div className="font-medium text-gray-900">{customer.name}</div>
@@ -385,7 +407,7 @@ export default function CustomersPage() {
 
               {/* Mobile Card View */}
               <div className="lg:hidden space-y-4">
-                {filteredCustomers.map((customer) => (
+                {paginatedCustomers.map((customer) => (
                   <div key={customer.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
                     <div className="flex items-start justify-between mb-3">
                       <div>
@@ -475,6 +497,18 @@ export default function CustomersPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {filteredCustomers.length > 0 && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={filteredCustomers.length}
+          itemsPerPage={itemsPerPage}
+          onPageChange={handlePageChange}
+          className="mt-6"
+        />
+      )}
 
       {/* View Details Modal */}
       {isViewModalOpen && selectedCustomer && (

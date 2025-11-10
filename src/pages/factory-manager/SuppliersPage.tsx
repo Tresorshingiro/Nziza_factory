@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/authStore'
 import { Button } from '../../components/ui/button'
 import { Card } from '../../components/ui/card'
 import { Badge } from '../../components/ui/badge'
+import { Pagination } from '../../components/ui/pagination'
 import { 
   Plus, 
   Search, 
@@ -71,6 +72,11 @@ export default function SuppliersPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(5)
+  
   const [isViewModalOpen, setIsViewModalOpen] = useState(false)
   const [viewingSupplier, setViewingSupplier] = useState<Supplier | null>(null)
 
@@ -292,6 +298,23 @@ export default function SuppliersPage() {
     return matchesSearch && matchesType && matchesStatus
   })
 
+  // Pagination logic
+  const totalPages = Math.ceil(filteredSuppliers.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedSuppliers = filteredSuppliers.slice(startIndex, endIndex)
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage)
+    }
+  }
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, typeFilter, statusFilter])
+
   if (loading) {
     return <div className="flex justify-center items-center h-64">Loading...</div>
   }
@@ -406,7 +429,7 @@ export default function SuppliersPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredSuppliers.map((supplier) => (
+              {paginatedSuppliers.map((supplier) => (
                 <tr key={supplier.id} className="hover:bg-gray-50">
                   <td className="px-4 py-4 whitespace-nowrap">
                     <div>
@@ -485,6 +508,18 @@ export default function SuppliersPage() {
           )}
         </div>
       </Card>
+
+      {/* Pagination */}
+      {filteredSuppliers.length > 0 && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={filteredSuppliers.length}
+          itemsPerPage={itemsPerPage}
+          onPageChange={handlePageChange}
+          className="mt-6"
+        />
+      )}
 
       {/* Add/Edit Supplier Modal */}
       {showForm && (

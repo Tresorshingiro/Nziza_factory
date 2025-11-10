@@ -11,6 +11,7 @@ import {
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../stores/authStore'
 import { Database } from '../../types/database.types'
+import { Pagination } from '../../components/ui/pagination'
 import toast, { Toaster } from 'react-hot-toast'
 
 type Employee = Database['public']['Tables']['employees']['Row']
@@ -22,6 +23,11 @@ export default function EmployeesPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(5)
+  
   const [showAddModal, setShowAddModal] = useState(false)
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
@@ -346,6 +352,23 @@ export default function EmployeesPage() {
     return matchesSearch && matchesDepartment && matchesStatus
   })
 
+  // Pagination logic
+  const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedEmployees = filteredEmployees.slice(startIndex, endIndex)
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage)
+    }
+  }
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, departmentFilter, statusFilter])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -501,7 +524,7 @@ export default function EmployeesPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredEmployees.map((employee) => (
+              {paginatedEmployees.map((employee) => (
                 <tr key={employee.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
@@ -572,6 +595,18 @@ export default function EmployeesPage() {
           </table>
         </div>
       </div>
+
+      {/* Pagination */}
+      {filteredEmployees.length > 0 && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={filteredEmployees.length}
+          itemsPerPage={itemsPerPage}
+          onPageChange={handlePageChange}
+          className="mt-6"
+        />
+      )}
 
       {/* Add Employee Modal */}
       {showAddModal && (

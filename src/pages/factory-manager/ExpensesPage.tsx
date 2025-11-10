@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/authStore'
 import { Button } from '../../components/ui/button'
 import { Card } from '../../components/ui/card'
 import { Badge } from '../../components/ui/badge'
+import { Pagination } from '../../components/ui/pagination'
 import { 
   Plus, 
   Search, 
@@ -94,6 +95,11 @@ export default function ExpensesPage() {
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<ExpenseStatus | 'all'>('all')
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(5)
+  
   const [isViewModalOpen, setIsViewModalOpen] = useState(false)
   const [viewingExpense, setViewingExpense] = useState<Expense | null>(null)
 

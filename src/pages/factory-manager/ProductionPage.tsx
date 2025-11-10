@@ -6,6 +6,7 @@ import { Plus, Package, Milk, TrendingUp, AlertCircle, Edit, Eye, Trash2, X } fr
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Pagination } from '../../components/ui/pagination'
 import type { Database } from '../../types/database.types'
 import toast from 'react-hot-toast'
 
@@ -45,6 +46,10 @@ export default function ProductionPage() {
   const [isViewModalOpen, setIsViewModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [selectedBatch, setSelectedBatch] = useState<ProductionBatch | null>(null)
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(5)
 
   // Date filter state
   const [dateFilter, setDateFilter] = useState({
@@ -116,6 +121,31 @@ export default function ProductionPage() {
   useEffect(() => {
     fetchProductionData()
   }, [user?.factory_id, dateFilter.startDate, dateFilter.endDate])
+
+  // Filter batches by date range
+  const filteredBatches = batches.filter(batch => {
+    const batchDate = new Date(batch.production_date)
+    const start = new Date(dateFilter.startDate)
+    const end = new Date(dateFilter.endDate)
+    return batchDate >= start && batchDate <= end
+  })
+
+  // Pagination logic
+  const totalPages = Math.ceil(filteredBatches.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedBatches = filteredBatches.slice(startIndex, endIndex)
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage)
+    }
+  }
+
+  // Reset pagination when date filter changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [dateFilter.startDate, dateFilter.endDate])
 
   // Generate batch number
   const generateBatchNumber = (cheeseType: string) => {
@@ -557,7 +587,7 @@ export default function ProductionPage() {
           <CardDescription>Recent production batch history</CardDescription>
         </CardHeader>
         <CardContent>
-          {batches.length === 0 ? (
+          {filteredBatches.length === 0 ? (
             <div className="text-center py-12">
               <Package className="w-12 h-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">No production batches yet</h3>
@@ -587,7 +617,7 @@ export default function ProductionPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {batches.map((batch) => (
+                    {paginatedBatches.map((batch) => (
                       <tr key={batch.id} className="hover:bg-gray-50">
                         <td className="py-3 px-4 font-medium text-gray-900">{batch.batch_number}</td>
                         <td className="py-3 px-4 text-gray-600">
@@ -647,7 +677,7 @@ export default function ProductionPage() {
 
               {/* Mobile Card View */}
               <div className="lg:hidden space-y-4">
-                {batches.map((batch) => (
+                {paginatedBatches.map((batch) => (
                   <div key={batch.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
                     <div className="flex items-start justify-between mb-3">
                       <div>
@@ -730,6 +760,18 @@ export default function ProductionPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {filteredBatches.length > 0 && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={filteredBatches.length}
+          itemsPerPage={itemsPerPage}
+          onPageChange={handlePageChange}
+          className="mt-6"
+        />
+      )}
 
       {/* View Details Modal */}
       {isViewModalOpen && selectedBatch && (

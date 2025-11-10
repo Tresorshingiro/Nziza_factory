@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../stores/authStore'
+import { Pagination } from '../../components/ui/pagination'
 import toast from 'react-hot-toast'
 import { Plus, Search, Eye, Edit, Trash2, Package, AlertTriangle, TrendingUp, X, Minus } from 'lucide-react'
 
@@ -44,6 +45,10 @@ export default function StockPage() {
   const [selectedItem, setSelectedItem] = useState<StockItem | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(5)
   const [formData, setFormData] = useState<StockFormData>({
     stock_type: 'finished_goods',
     item_name: '',
@@ -224,6 +229,23 @@ export default function StockPage() {
     item.item_code.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
+  // Pagination logic
+  const totalPages = Math.ceil(filteredItems.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedItems = filteredItems.slice(startIndex, endIndex)
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage)
+    }
+  }
+
+  // Reset pagination when search changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm])
+
   const totalValue = stockItems.reduce((sum, item) => sum + item.total_value, 0)
   const lowStockCount = stockItems.filter(item => item.quantity <= item.reorder_level).length
 
@@ -342,7 +364,7 @@ export default function StockPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {filteredItems.map((item) => (
+                    {paginatedItems.map((item) => (
                       <tr key={item.id} className={`hover:bg-gray-50 ${item.quantity <= item.reorder_level ? 'bg-red-50' : ''}`}>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900">{item.item_code}</div>
@@ -399,7 +421,7 @@ export default function StockPage() {
 
               {/* Mobile Card View */}
               <div className="lg:hidden space-y-4">
-                {filteredItems.map((item) => (
+                {paginatedItems.map((item) => (
                   <div key={item.id} className={`border border-gray-200 rounded-lg p-4 shadow-sm ${item.quantity <= item.reorder_level ? 'bg-red-50 border-red-200' : 'bg-white'}`}>
                     <div className="flex items-start justify-between mb-3">
                       <div className="min-w-0 flex-1">
@@ -465,6 +487,18 @@ export default function StockPage() {
           )}
         </div>
       </div>
+
+      {/* Pagination */}
+      {filteredItems.length > 0 && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={filteredItems.length}
+          itemsPerPage={itemsPerPage}
+          onPageChange={handlePageChange}
+          className="mt-6"
+        />
+      )}
 
       {/* Add Stock Modal */}
       {showAddModal && (
