@@ -16,6 +16,10 @@ import FactoryManagerDashboard from './pages/dashboards/FactoryManagerDashboard'
 // Management pages - Main Boss
 import FactoriesPage from './pages/main-boss/FactoriesPage'
 import UsersPage from './pages/main-boss/UsersPage'
+import MainBossReportsPage from './pages/main-boss/ReportsPage'
+import AuditCenterPage from './pages/main-boss/AuditCenterPage'
+import FinancialOverviewPage from './pages/main-boss/FinancialOverviewPage'
+import AnalyticsKPIPage from './pages/main-boss/AnalyticsKPIPage'
 
 // Management pages - Factory Manager
 import MilkCollectionPage from './pages/factory-manager/MilkCollectionPage'
@@ -35,10 +39,13 @@ import SeniorSalesPage from './pages/senior-manager/SalesPage'
 import SeniorExpensesPage from './pages/senior-manager/ExpensesPage'
 import SeniorSuppliersPage from './pages/senior-manager/SuppliersPage'
 import SeniorInventoriesPage from './pages/senior-manager/InventoriesPage'
+import PayrollPage from './pages/senior-manager/PayrollPage'
 
 // Components
 import Layout from './components/layout/Layout'
 import ProtectedRoute from './components/auth/ProtectedRoute'
+
+
 
 function App() {
   const { user, setUser, setSession, loading, setLoading } = useAuthStore()
@@ -115,15 +122,23 @@ function App() {
       console.log('Auth state change:', event)
       
       if (event === 'SIGNED_IN' && session?.user) {
-        const { data: userData } = await supabase
+        const { data: userData, error: userError } = await supabase
           .from('users')
           .select('*')
           .eq('id', session.user.id)
           .single()
           
-        if (mounted && userData) {
-          setUser(userData)
-          setSession(session)
+        if (mounted) {
+          if (userData) {
+            setUser(userData)
+            setSession(session)
+          } else if (userError) {
+            console.log('User not found in users table. Please check the demo users setup.')
+            console.log('Auth User ID:', session.user.id)
+            console.log('Auth User Email:', session.user.email)
+            setUser(null)
+            setSession(null)
+          }
         }
       } else if (event === 'SIGNED_OUT') {
         if (mounted) {
@@ -170,8 +185,11 @@ function App() {
         {/* Management routes - Role-based access */}
         
         {/* Main Boss routes */}
+        <Route path="/analytics" element={<ProtectedRoute roles={['main_boss']}><AnalyticsKPIPage /></ProtectedRoute>} />
+        <Route path="/audit-center" element={<ProtectedRoute roles={['main_boss']}><AuditCenterPage /></ProtectedRoute>} />
+        <Route path="/financial-overview" element={<ProtectedRoute roles={['main_boss']}><FinancialOverviewPage /></ProtectedRoute>} />
         <Route path="/factories" element={<ProtectedRoute roles={['main_boss', 'senior_manager']}><FactoriesPage /></ProtectedRoute>} />
-        <Route path="/users" element={<ProtectedRoute roles={['main_boss']}><UsersPage /></ProtectedRoute>} />
+        <Route path="/users" element={<ProtectedRoute roles={['main_boss', 'senior_manager']}><UsersPage /></ProtectedRoute>} />
         
         {/* Factory Manager routes */}
         <Route path="/farmers" element={<ProtectedRoute roles={['factory_manager', 'senior_manager', 'main_boss']}><FarmersPage /></ProtectedRoute>} />
@@ -182,7 +200,8 @@ function App() {
         
         {/* Senior Manager routes (with role-specific pages) */}
         <Route path="/reports" element={<ProtectedRoute roles={['factory_manager', 'senior_manager', 'main_boss']}>
-          {user?.role === 'senior_manager' ? <SeniorReportsPage /> : <ReportsPage />}
+          {user?.role === 'main_boss' ? <MainBossReportsPage /> : 
+           user?.role === 'senior_manager' ? <SeniorReportsPage /> : <ReportsPage />}
         </ProtectedRoute>} />
         <Route path="/sales" element={<ProtectedRoute roles={['factory_manager', 'senior_manager', 'main_boss']}>
           {user?.role === 'senior_manager' ? <SeniorSalesPage /> : <CustomersPage />}
@@ -202,6 +221,7 @@ function App() {
         
         {/* Senior Manager exclusive routes */}
         <Route path="/create-factory-manager" element={<ProtectedRoute roles={['senior_manager', 'main_boss']}><CreateFactoryManagerPage /></ProtectedRoute>} />
+        <Route path="/payroll" element={<ProtectedRoute roles={['senior_manager', 'main_boss']}><PayrollPage /></ProtectedRoute>} />
       </Route>
       
       {/* Catch all */}

@@ -7,6 +7,7 @@ import {
   UserPlus,
   BarChart3,
   Package,
+  DollarSign,
   X
 } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
@@ -23,6 +24,7 @@ export default function SeniorManagerSidebar({ isOpen, onClose }: SeniorManagerS
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
     { name: 'Manage Factories', path: '/factories', icon: Factory },
     { name: 'Factory Managers', path: '/create-factory-manager', icon: UserPlus },
+    { name: 'Payroll Management', path: '/payroll', icon: DollarSign },
     { name: 'Reports', path: '/reports', icon: BarChart3 },
     { name: 'Suppliers', path: '/suppliers', icon: Building2 },
     { name: 'Sales', path: '/sales', icon: BarChart3 },

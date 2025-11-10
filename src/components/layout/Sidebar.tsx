@@ -12,7 +12,10 @@ import {
   Briefcase,
   Settings,
   Truck,
-  X
+  X,
+  Shield,
+  BarChart3,
+  TrendingUp
 } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 
@@ -26,8 +29,18 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, roles: ['main_boss', 'senior_manager', 'factory_manager'] },
+    
+    // Main Boss Executive Pages
+    { name: 'Analytics & KPIs', path: '/analytics', icon: BarChart3, roles: ['main_boss'] },
+    { name: 'Audit Center', path: '/audit-center', icon: Shield, roles: ['main_boss'] },
+    { name: 'Financial Overview', path: '/financial-overview', icon: TrendingUp, roles: ['main_boss'] },
+    
+    // Shared Pages
     { name: 'Factories', path: '/factories', icon: Factory, roles: ['main_boss', 'senior_manager'] },
-    { name: 'Users & Permissions', path: '/users', icon: Users, roles: ['senior_manager'] },
+    { name: 'Users & Permissions', path: '/users', icon: Users, roles: ['main_boss', 'senior_manager'] },
+    { name: 'Reports', path: '/reports', icon: FileText, roles: ['main_boss', 'senior_manager', 'factory_manager'] },
+    
+    // Senior Manager & Factory Manager Pages
     { name: 'Farmers', path: '/farmers', icon: UserCircle, roles: ['senior_manager', 'factory_manager'] },
     { name: 'Milk Collection', path: '/milk-collection', icon: Milk, roles: ['senior_manager', 'factory_manager'] },
     { name: 'Production', path: '/production', icon: PackageOpen, roles: ['senior_manager', 'factory_manager'] },
@@ -36,7 +49,6 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     { name: 'Sales & Orders', path: '/sales', icon: ShoppingCart, roles: ['senior_manager', 'factory_manager'] },
     { name: 'Expenses', path: '/expenses', icon: DollarSign, roles: ['senior_manager', 'factory_manager'] },
     { name: 'Suppliers', path: '/suppliers', icon: Truck, roles: ['senior_manager', 'factory_manager'] },
-    { name: 'Reports', path: '/reports', icon: FileText, roles: ['main_boss', 'senior_manager', 'factory_manager'] },
     { name: 'HR & Employees', path: '/hr/employees', icon: Briefcase, roles: ['senior_manager', 'factory_manager'] },
   ]
 

@@ -32,19 +32,19 @@ export default function Header({ onMenuClick }: HeaderProps) {
     try {
       setIsDropdownOpen(false)
       
-      // Clear auth state immediately to prevent any routing confusion
+      // Clear auth state first
       logout()
       
       // Clear session from Supabase
       await supabase.auth.signOut({ scope: 'global' })
       
-      // Force navigation to landing page
-      window.location.href = '/'
+      // Navigate to landing page using navigate instead of window.location
+      navigate('/', { replace: true })
       
     } catch (error: any) {
       console.error('Logout error:', error)
       // Force navigation even if there's an error
-      window.location.href = '/'
+      navigate('/', { replace: true })
     }
   }
 
@@ -74,7 +74,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
   }
 
   return (
-    <header className="bg-white border-b border-gray-200 px-3 sm:px-6 py-4">
+    <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           {/* Mobile menu button */}
@@ -87,18 +87,19 @@ export default function Header({ onMenuClick }: HeaderProps) {
             <Menu className="w-5 h-5" />
           </Button>
           
+          {/* Desktop title */}
           <div className="hidden sm:block">
             <h2 className="text-lg sm:text-2xl font-bold text-gray-900">NZIZA Factory Management</h2>
             <p className="text-xs sm:text-sm text-gray-600">Cheese Production Excellence</p>
           </div>
           
-          {/* Mobile title */}
+          {/* Mobile title - just NZIZA */}
           <div className="sm:hidden">
             <h2 className="text-lg font-bold text-gray-900">NZIZA</h2>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-4">
+        <div className="flex items-center gap-3">
           {/* Notifications */}
           <button className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
             <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -106,15 +107,11 @@ export default function Header({ onMenuClick }: HeaderProps) {
           </button>
 
           {/* User Profile */}
-          <div className="flex items-center gap-2 sm:gap-4 pl-2 sm:pl-4 border-l border-gray-200">
+          <div className="flex items-center gap-4 pl-4 border-l border-gray-200">
+            {/* Desktop: Show user name and role */}
             <div className="hidden sm:block text-right">
               <p className="text-sm font-medium text-gray-900">{user?.full_name}</p>
               <div className="mt-1 flex justify-end">{getRoleBadge()}</div>
-            </div>
-            
-            {/* Mobile: Show role badge only */}
-            <div className="sm:hidden">
-              {getRoleBadge()}
             </div>
             
             {/* Profile Dropdown */}
@@ -126,12 +123,19 @@ export default function Header({ onMenuClick }: HeaderProps) {
                 <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-amber-500 to-orange-600 rounded-full flex items-center justify-center">
                   <User className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                 </div>
-                <ChevronDown className={`w-4 h-4 text-gray-600 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                {/* Hide chevron on mobile for cleaner look */}
+                <ChevronDown className={`hidden sm:block w-4 h-4 text-gray-600 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
               </button>
 
               {/* Dropdown Menu */}
               {isDropdownOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                  {/* Mobile: Show user info in dropdown */}
+                  <div className="sm:hidden px-4 py-3 bg-gray-50 border-b border-gray-200">
+                    <p className="text-sm font-medium text-gray-900">{user?.full_name}</p>
+                    <div className="mt-2">{getRoleBadge()}</div>
+                  </div>
+                  
                   <div className="py-1">
                     <button
                       onClick={handleProfileClick}
