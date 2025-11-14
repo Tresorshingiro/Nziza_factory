@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../stores/authStore'
 import { 
@@ -70,6 +71,7 @@ interface ChartData {
 
 export default function FactoryManagerDashboard() {
   const { user } = useAuthStore()
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState<DashboardStats>({
     monthly: { totalMilk: 0, totalProduction: 0, totalSales: 0, totalExpenses: 0 },
@@ -756,18 +758,59 @@ export default function FactoryManagerDashboard() {
           <CardTitle>Quick Actions</CardTitle>
           <CardDescription>Common tasks for daily operations</CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Button className="h-16 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700" size="lg">
+        <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          <Button 
+            className="h-16 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700" 
+            size="lg"
+            onClick={() => navigate('/milk-collection')}
+          >
             <Milk className="w-5 h-5 mr-2" />
             Record Milk Collection
           </Button>
-          <Button variant="outline" className="h-16 border-green-300 text-green-600 hover:bg-green-50" size="lg">
+          <Button 
+            variant="outline" 
+            className="h-16 border-green-300 text-green-600 hover:bg-green-50" 
+            size="lg"
+            onClick={() => navigate('/production')}
+          >
             <Package className="w-5 h-5 mr-2" />
             Log Production
           </Button>
-          <Button variant="outline" className="h-16 border-purple-300 text-purple-600 hover:bg-purple-50" size="lg">
+          <Button 
+            variant="outline" 
+            className="h-16 border-purple-300 text-purple-600 hover:bg-purple-50" 
+            size="lg"
+            onClick={() => navigate('/sales')}
+          >
             <ShoppingCart className="w-5 h-5 mr-2" />
             Create Sales Order
+          </Button>
+          <Button 
+            variant="outline" 
+            className="h-16 border-orange-300 text-orange-600 hover:bg-orange-50" 
+            size="lg"
+            onClick={() => navigate('/expenses')}
+          >
+            <DollarSign className="w-5 h-5 mr-2" />
+            Record Expense
+          </Button>
+          <Button 
+            variant="outline" 
+            className="h-16 border-cyan-300 text-cyan-600 hover:bg-cyan-50" 
+            size="lg"
+            onClick={() => navigate('/customers')}
+          >
+            <Users className="w-5 h-5 mr-2" />
+            Manage Customers
+          </Button>
+          <Button 
+            variant="outline" 
+            className="h-16 border-amber-300 text-amber-600 hover:bg-amber-50" 
+            size="lg"
+            onClick={() => navigate('/stock')}
+          >
+            <Package className="w-5 h-5 mr-2" />
+            Check Inventory
           </Button>
         </CardContent>
       </Card>
