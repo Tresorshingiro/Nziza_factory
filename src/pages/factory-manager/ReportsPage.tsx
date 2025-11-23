@@ -163,7 +163,7 @@ export default function ReportsPage() {
       fetchReportStats()
       fetchReportData()
     }
-  }, [user, selectedReportType, selectedPeriod])
+  }, [user?.factory_id, selectedReportType, selectedPeriod])
 
   const fetchReportStats = async () => {
     try {

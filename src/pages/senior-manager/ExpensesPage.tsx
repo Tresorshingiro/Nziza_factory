@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Search, Plus, Receipt, TrendingDown, DollarSign, Calendar, Edit, Trash2, FileText } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Search, Plus, Receipt, TrendingDown, DollarSign, Calendar, Edit, Trash2, FileText, MoreVertical, Eye } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import FactorySelector from '../../components/ui/FactorySelector'
 import { supabase } from '../../lib/supabase'
@@ -48,6 +48,8 @@ export default function SeniorManagerExpensesPage() {
   const [editingExpense, setEditingExpense] = useState<ExpenseWithFactory | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
   const [monthlyData, setMonthlyData] = useState<Array<{ month: string; expenses: number }>>([])
   const [factories, setFactories] = useState<Array<{id: string; name: string}>>([])
 
@@ -69,6 +71,19 @@ export default function SeniorManagerExpensesPage() {
     fetchMonthlyData()
     fetchFactories()
   }, [selectedFactory])
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setOpenDropdown(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [])
 
   const fetchFactories = async () => {
     try {
@@ -568,21 +583,52 @@ export default function SeniorManagerExpensesPage() {
                       {new Date(expense.expense_date).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
+                      <div className="relative" ref={openDropdown === expense.id ? dropdownRef : null}>
                         <button
-                          onClick={() => handleEdit(expense)}
-                          className="p-1 text-blue-600 hover:text-blue-800 transition-colors"
-                          title="Edit"
+                          onClick={() => setOpenDropdown(openDropdown === expense.id ? null : expense.id)}
+                          className="p-1 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                          title="Actions"
                         >
-                          <Edit className="w-4 h-4" />
+                          <MoreVertical className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => handleDelete(expense.id)}
-                          className="p-1 text-red-600 hover:text-red-800 transition-colors"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        
+                        {openDropdown === expense.id && (
+                          <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+                            <div className="py-1">
+                              <button
+                                onClick={() => {
+                                  // View functionality can be added later
+                                  setOpenDropdown(null)
+                                  toast.info('View functionality coming soon')
+                                }}
+                                className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                              >
+                                <Eye className="w-4 h-4 mr-2" />
+                                View Details
+                              </button>
+                              <button
+                                onClick={() => {
+                                  handleEdit(expense)
+                                  setOpenDropdown(null)
+                                }}
+                                className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                              >
+                                <Edit className="w-4 h-4 mr-2" />
+                                Edit Expense
+                              </button>
+                              <button
+                                onClick={() => {
+                                  handleDelete(expense.id)
+                                  setOpenDropdown(null)
+                                }}
+                                className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Delete Expense
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -683,21 +729,53 @@ export default function SeniorManagerExpensesPage() {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-300">
-                    <button
-                      onClick={() => handleEdit(expense)}
-                      className="flex-1 min-w-[80px] inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-orange-700 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors"
-                    >
-                      <Edit className="w-4 h-4 mr-1" />
-                      <span className="hidden sm:inline">Edit</span>
-                    </button>
-                    <button
-                      onClick={() => handleDelete(expense.id)}
-                      className="flex-1 min-w-[80px] inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4 mr-1" />
-                      <span className="hidden sm:inline">Delete</span>
-                    </button>
+                  <div className="flex justify-end pt-3 border-t border-gray-300">
+                    <div className="relative" ref={openDropdown === `mobile-${expense.id}` ? dropdownRef : null}>
+                      <button
+                        onClick={() => setOpenDropdown(openDropdown === `mobile-${expense.id}` ? null : `mobile-${expense.id}`)}
+                        className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+                      >
+                        <MoreVertical className="w-4 h-4 mr-2" />
+                        Actions
+                      </button>
+                      
+                      {openDropdown === `mobile-${expense.id}` && (
+                        <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+                          <div className="py-1">
+                            <button
+                              onClick={() => {
+                                setOpenDropdown(null)
+                                toast.info('View functionality coming soon')
+                              }}
+                              className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                            >
+                              <Eye className="w-4 h-4 mr-2" />
+                              View Details
+                            </button>
+                            <button
+                              onClick={() => {
+                                handleEdit(expense)
+                                setOpenDropdown(null)
+                              }}
+                              className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                            >
+                              <Edit className="w-4 h-4 mr-2" />
+                              Edit Expense
+                            </button>
+                            <button
+                              onClick={() => {
+                                handleDelete(expense.id)
+                                setOpenDropdown(null)
+                              }}
+                              className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Delete Expense
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}

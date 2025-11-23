@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../stores/authStore'
+import { transferFromFactoryToMainStock } from '../../utils/factoryStockUtils'
 import { Pagination } from '../../components/ui/pagination'
 import toast from 'react-hot-toast'
-import { Plus, Search, Eye, Edit, Trash2, Package, AlertTriangle, TrendingUp, X, Minus } from 'lucide-react'
+import { Plus, Search, Eye, Edit, Trash2, Package, AlertTriangle, TrendingUp, X, Minus, MoreVertical, ArrowRight } from 'lucide-react'
 
 interface StockItem {
   id: string
@@ -42,9 +43,15 @@ export default function StockPage() {
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
   const [showViewModal, setShowViewModal] = useState(false)
+  const [showTransferModal, setShowTransferModal] = useState(false)
   const [selectedItem, setSelectedItem] = useState<StockItem | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
+  const [transferQuantity, setTransferQuantity] = useState('')
+  const [transferNotes, setTransferNotes] = useState('')
+  const [transferLoading, setTransferLoading] = useState(false)
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -61,7 +68,21 @@ export default function StockPage() {
 
   useEffect(() => {
     fetchStockItems()
-  }, [user])
+  }, [user?.factory_id, user?.role])
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setOpenDropdown(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [])
 
   const fetchStockItems = async () => {
     if (!user) return
@@ -103,17 +124,17 @@ export default function StockPage() {
       }
 
       if (isEditing && selectedItem) {
-        const { error } = await supabase
-          .from('stock')
-          .update(stockData as any)
+        const { error } = await (supabase
+          .from('stock') as any)
+          .update(stockData)
           .eq('id', selectedItem.id)
 
         if (error) throw error
         toast.success('Inventory item updated successfully!')
       } else {
-        const { error } = await supabase
-          .from('stock')
-          .insert([stockData as any])
+        const { error } = await (supabase
+          .from('stock') as any)
+          .insert([stockData])
 
         if (error) throw error
         toast.success('Inventory item added successfully!')
@@ -180,6 +201,67 @@ export default function StockPage() {
     } catch (error: any) {
       console.error('Error deleting stock item:', error)
       toast.error('Failed to delete inventory item')
+    }
+  }
+
+  const handleTransfer = (item: StockItem) => {
+    if (item.stock_type !== 'finished_goods') {
+      toast.error('Only finished goods can be transferred to main stock')
+      return
+    }
+    setSelectedItem(item)
+    setTransferQuantity('')
+    setTransferNotes('')
+    setShowTransferModal(true)
+  }
+
+  const handleTransferToMainStock = async () => {
+    if (!selectedItem || !user?.factory_id || !selectedItem.cheese_type) return
+
+    try {
+      setTransferLoading(true)
+      
+      const quantity = parseFloat(transferQuantity)
+      
+      // Validate inputs
+      if (!quantity || quantity <= 0) {
+        toast.error('Please enter a valid quantity')
+        return
+      }
+      if (quantity > selectedItem.quantity) {
+        toast.error(`Cannot transfer more than available quantity (${selectedItem.quantity} kg)`)
+        return
+      }
+
+      // Use the proper transfer utility function
+      const result = await transferFromFactoryToMainStock(
+        selectedItem.id,
+        user.factory_id,
+        selectedItem.cheese_type,
+        quantity,
+        selectedItem.unit_cost,
+        user.id,
+        transferNotes || `Transfer from ${user.factory_id} factory stock`
+      )
+
+      if (!result.success) {
+        toast.error(`Transfer failed: ${result.message}`)
+        return
+      }
+
+      toast.success(result.message)
+      
+      setShowTransferModal(false)
+      setSelectedItem(null)
+      setTransferQuantity('')
+      setTransferNotes('')
+      fetchStockItems()
+
+    } catch (error: any) {
+      console.error('Error transferring to main stock:', error)
+      toast.error('Failed to transfer to main stock')
+    } finally {
+      setTransferLoading(false)
     }
   }
 
@@ -390,28 +472,64 @@ export default function StockPage() {
                         <td className="px-6 py-4 whitespace-nowrap">
                           {getStatusBadge(item)}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-3">
-                          <button 
-                            onClick={() => handleEdit(item)}
-                            className="text-amber-600 hover:text-amber-800 transition-colors"
-                            title="Edit"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => handleView(item)}
-                            className="text-blue-600 hover:text-blue-800 transition-colors"
-                            title="View Details"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => handleDelete(item)}
-                            className="text-red-600 hover:text-red-800 transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <div className="relative" ref={openDropdown === item.id ? dropdownRef : null}>
+                            <button
+                              onClick={() => setOpenDropdown(openDropdown === item.id ? null : item.id)}
+                              className="text-gray-600 hover:text-gray-800 transition-colors"
+                              title="Actions"
+                            >
+                              <MoreVertical className="w-5 h-5" />
+                            </button>
+                            {openDropdown === item.id && (
+                              <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200">
+                                <div className="py-1">
+                                  {item.stock_type === 'finished_goods' && (
+                                    <button
+                                      onClick={() => {
+                                        handleTransfer(item)
+                                        setOpenDropdown(null)
+                                      }}
+                                      className="flex items-center px-4 py-2 text-sm text-green-700 hover:bg-green-50 w-full text-left"
+                                    >
+                                      <ArrowRight className="w-4 h-4 mr-3" />
+                                      Transfer to Main Stock
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => {
+                                      handleView(item)
+                                      setOpenDropdown(null)
+                                    }}
+                                    className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
+                                  >
+                                    <Eye className="w-4 h-4 mr-3" />
+                                    View Details
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      handleEdit(item)
+                                      setOpenDropdown(null)
+                                    }}
+                                    className="flex items-center px-4 py-2 text-sm text-orange-700 hover:bg-orange-50 w-full text-left"
+                                  >
+                                    <Edit className="w-4 h-4 mr-3" />
+                                    Edit
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      handleDelete(item)
+                                      setOpenDropdown(null)
+                                    }}
+                                    className="flex items-center px-4 py-2 text-sm text-red-700 hover:bg-red-50 w-full text-left"
+                                  >
+                                    <Trash2 className="w-4 h-4 mr-3" />
+                                    Delete
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -456,28 +574,62 @@ export default function StockPage() {
                       <div>
                         <p className="text-xs text-gray-500">Reorder at: {item.reorder_level} {item.unit}</p>
                       </div>
-                      <div className="flex items-center space-x-3">
-                        <button 
-                          onClick={() => handleEdit(item)}
-                          className="flex items-center space-x-1 text-amber-600 hover:text-amber-800 text-sm transition-colors"
+                      <div className="relative" ref={openDropdown === `mobile-${item.id}` ? dropdownRef : null}>
+                        <button
+                          onClick={() => setOpenDropdown(openDropdown === `mobile-${item.id}` ? null : `mobile-${item.id}`)}
+                          className="flex items-center space-x-1 text-gray-600 hover:text-gray-800 text-sm transition-colors"
                         >
-                          <Edit className="w-4 h-4" />
-                          <span>Edit</span>
+                          <MoreVertical className="w-4 h-4" />
+                          <span>Actions</span>
                         </button>
-                        <button 
-                          onClick={() => handleView(item)}
-                          className="flex items-center space-x-1 text-blue-600 hover:text-blue-800 text-sm transition-colors"
-                        >
-                          <Eye className="w-4 h-4" />
-                          <span>View</span>
-                        </button>
-                        <button 
-                          onClick={() => handleDelete(item)}
-                          className="flex items-center space-x-1 text-red-600 hover:text-red-800 text-sm transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          <span>Delete</span>
-                        </button>
+                        {openDropdown === `mobile-${item.id}` && (
+                          <div className="absolute right-0 bottom-full mb-2 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200">
+                            <div className="py-1">
+                              {item.stock_type === 'finished_goods' && (
+                                <button
+                                  onClick={() => {
+                                    handleTransfer(item)
+                                    setOpenDropdown(null)
+                                  }}
+                                  className="flex items-center px-4 py-2 text-sm text-green-700 hover:bg-green-50 w-full text-left"
+                                >
+                                  <ArrowRight className="w-4 h-4 mr-3" />
+                                  Transfer to Main Stock
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  handleView(item)
+                                  setOpenDropdown(null)
+                                }}
+                                className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
+                              >
+                                <Eye className="w-4 h-4 mr-3" />
+                                View Details
+                              </button>
+                              <button
+                                onClick={() => {
+                                  handleEdit(item)
+                                  setOpenDropdown(null)
+                                }}
+                                className="flex items-center px-4 py-2 text-sm text-orange-700 hover:bg-orange-50 w-full text-left"
+                              >
+                                <Edit className="w-4 h-4 mr-3" />
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => {
+                                  handleDelete(item)
+                                  setOpenDropdown(null)
+                                }}
+                                className="flex items-center px-4 py-2 text-sm text-red-700 hover:bg-red-50 w-full text-left"
+                              >
+                                <Trash2 className="w-4 h-4 mr-3" />
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -874,6 +1026,133 @@ export default function StockPage() {
                 >
                   <Edit className="w-4 h-4" />
                   Edit Item
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Transfer to Main Stock Modal */}
+      {showTransferModal && selectedItem && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white">
+              <h2 className="text-xl font-bold text-gray-900">Transfer to Main Stock</h2>
+              <button 
+                onClick={() => setShowTransferModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Item Information */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="font-medium text-gray-900 mb-2">{selectedItem.item_name}</h3>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-gray-500">Available:</span> 
+                    <span className="font-medium ml-1">{selectedItem.quantity} {selectedItem.unit}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Unit Cost:</span> 
+                    <span className="font-medium ml-1">{selectedItem.unit_cost.toLocaleString()} RWF</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Transfer Form */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Quantity to Transfer *
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      max={selectedItem.quantity}
+                      value={transferQuantity}
+                      onChange={(e) => setTransferQuantity(e.target.value)}
+                      className="flex-1 px-4 py-2.5 bg-gray-50 border-2 border-gray-200 rounded-lg text-gray-900 focus:bg-white focus:border-green-500 focus:ring-4 focus:ring-green-500/10 outline-none transition-all"
+                      placeholder={`Max: ${selectedItem.quantity}`}
+                      required
+                    />
+                    <span className="text-sm text-gray-500 px-2">{selectedItem.unit}</span>
+                    <button
+                      type="button"
+                      onClick={() => setTransferQuantity(selectedItem.quantity.toString())}
+                      className="px-3 py-2.5 bg-green-100 text-green-700 rounded-lg text-sm hover:bg-green-200 transition-colors"
+                    >
+                      All
+                    </button>
+                  </div>
+                  {transferQuantity && parseFloat(transferQuantity) > 0 && (
+                    <p className="mt-2 text-sm text-gray-600">
+                      Transfer Value: <span className="font-medium">{(parseFloat(transferQuantity) * selectedItem.unit_cost).toLocaleString()} RWF</span>
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Transfer Notes (Optional)
+                  </label>
+                  <textarea
+                    value={transferNotes}
+                    onChange={(e) => setTransferNotes(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-gray-50 border-2 border-gray-200 rounded-lg text-gray-900 focus:bg-white focus:border-green-500 focus:ring-4 focus:ring-green-500/10 outline-none transition-all"
+                    rows={3}
+                    placeholder="Add any notes about this transfer..."
+                  />
+                </div>
+              </div>
+
+              {/* Warning */}
+              <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg">
+                <div className="flex items-start space-x-2">
+                  <svg className="w-5 h-5 text-amber-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L5.268 15.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                  <div>
+                    <p className="text-sm text-amber-800 font-medium">Important Notice</p>
+                    <p className="text-sm text-amber-700 mt-1">
+                      This will reduce your factory stock and prepare the items for transfer to main stock.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t">
+                <button
+                  type="button"
+                  onClick={() => setShowTransferModal(false)}
+                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2.5 px-4 rounded-lg font-medium transition-colors"
+                  disabled={transferLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleTransferToMainStock}
+                  disabled={transferLoading || !transferQuantity || parseFloat(transferQuantity) <= 0}
+                  className="flex-1 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white py-2.5 px-4 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {transferLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Transferring...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                      </svg>
+                      Transfer to Main Stock
+                    </>
+                  )}
                 </button>
               </div>
             </div>

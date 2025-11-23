@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { UserPlus, Users, Factory, Mail, Phone, Save, X, Eye, Edit, Trash2 } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { UserPlus, Users, Factory, Mail, Phone, Save, X, Eye, Edit, Trash2, MoreVertical } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -39,6 +39,8 @@ export default function CreateFactoryManagerPage() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [selectedFactoryFilter, setSelectedFactoryFilter] = useState<string | null>(null)
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   const [newManager, setNewManager] = useState<NewManagerForm>({
     email: '',
@@ -50,6 +52,19 @@ export default function CreateFactoryManagerPage() {
 
   useEffect(() => {
     fetchManagers()
+  }, [])
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setOpenDropdown(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
   }, [])
 
   const fetchManagers = async () => {
@@ -180,21 +195,115 @@ export default function CreateFactoryManagerPage() {
     }
   }
 
-  const handleToggleStatus = (managerId: string) => {
-    setManagers(prev => 
-      prev.map(manager => 
-        manager.id === managerId 
-          ? { ...manager, is_active: !manager.is_active }
-          : manager
+  const handleToggleStatus = async (managerId: string) => {
+    try {
+      const manager = managers.find(m => m.id === managerId)
+      if (!manager) return
+
+      const newStatus = !manager.is_active
+      
+      const { error } = await supabase
+        .from('users')
+        .update({ is_active: newStatus })
+        .eq('id', managerId)
+
+      if (error) throw error
+
+      setManagers(prev => 
+        prev.map(m => 
+          m.id === managerId 
+            ? { ...m, is_active: newStatus }
+            : m
+        )
       )
-    )
-    toast.success('Manager status updated')
+      toast.success(`Manager ${newStatus ? 'activated' : 'deactivated'} successfully`)
+    } catch (error: any) {
+      console.error('Error updating manager status:', error)
+      toast.error(error.message || 'Failed to update manager status')
+    }
   }
 
-  const handleDelete = (managerId: string) => {
-    if (confirm('Are you sure you want to delete this factory manager?')) {
+
+
+  const handleDelete = async (managerId: string) => {
+    if (!confirm('Are you sure you want to delete this factory manager? This action cannot be undone.')) return
+
+    try {
+      // First, check if the manager has any associated records that would prevent deletion
+      const { data: dependencies, error: depError } = await supabase
+        .from('users')
+        .select(`
+          id,
+          full_name,
+          production_batches!supervisor_id(count),
+          milk_collections!recorded_by(count),
+          expenses!recorded_by(count),
+          daily_reports!submitted_by(count)
+        `)
+        .eq('id', managerId)
+        .single()
+
+      if (depError) {
+        console.error('Error checking dependencies:', depError)
+        // Continue with deletion attempt even if dependency check fails
+      }
+
+      // Check if manager has critical dependencies
+      const hasDependendies = dependencies && (
+        (dependencies.production_batches?.[0]?.count || 0) > 0 ||
+        (dependencies.milk_collections?.[0]?.count || 0) > 0 ||
+        (dependencies.expenses?.[0]?.count || 0) > 0 ||
+        (dependencies.daily_reports?.[0]?.count || 0) > 0
+      )
+
+      if (hasDependendies) {
+        const confirmForce = confirm(
+          `This manager has associated records (production batches, milk collections, etc.). ` +
+          `Deleting will remove the manager but keep the records. ` +
+          `Do you want to proceed?`
+        )
+        if (!confirmForce) return
+      }
+
+      // Attempt to delete from users table
+      const { error } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', managerId)
+
+      if (error) {
+        console.error('Delete error details:', error)
+        
+        // Handle specific error cases
+        if (error.code === '23503') {
+          toast.error('Cannot delete manager: There are records that depend on this manager. Please remove or reassign those records first.')
+          return
+        } else if (error.code === '42501') {
+          toast.error('Permission denied: You do not have sufficient privileges to delete this manager.')
+          return
+        } else {
+          throw error
+        }
+      }
+
+      // Remove from local state
       setManagers(prev => prev.filter(manager => manager.id !== managerId))
       toast.success('Manager deleted successfully')
+    } catch (error: any) {
+      console.error('Error deleting manager:', error)
+      
+      // Provide more specific error messages
+      let errorMessage = 'Failed to delete manager'
+      
+      if (error.message?.includes('foreign key')) {
+        errorMessage = 'Cannot delete manager: There are related records that must be handled first'
+      } else if (error.message?.includes('permission') || error.message?.includes('policy')) {
+        errorMessage = 'Permission denied: Insufficient privileges to delete this manager'
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+      
+      toast.error(errorMessage)
     }
   }
 
@@ -365,29 +474,64 @@ export default function CreateFactoryManagerPage() {
                           {new Date(manager.created_at).toLocaleDateString()}
                         </td>
                         <td className="py-3 px-4">
-                          <div className="flex items-center space-x-2">
-                            <Button variant="ghost" size="sm" className="text-blue-600 hover:text-blue-700 hover:bg-blue-50">
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                            <Button variant="ghost" size="sm" className="text-orange-600 hover:text-orange-700 hover:bg-orange-50">
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              onClick={() => handleToggleStatus(manager.id)}
-                              className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 text-xs px-2"
+                          <div className="relative" ref={openDropdown === manager.id ? dropdownRef : null}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setOpenDropdown(openDropdown === manager.id ? null : manager.id)}
+                              className="text-gray-600 hover:text-gray-900 hover:bg-gray-100"
                             >
-                              {manager.is_active ? 'Deactivate' : 'Activate'}
+                              <MoreVertical className="w-4 h-4" />
                             </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              onClick={() => handleDelete(manager.id)}
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+                            
+                            {openDropdown === manager.id && (
+                              <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+                                <div className="py-1">
+                                  <button
+                                    onClick={() => {
+                                      // View functionality can be added later
+                                      setOpenDropdown(null)
+                                      toast.info('View functionality coming soon')
+                                    }}
+                                    className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                  >
+                                    <Eye className="w-4 h-4 mr-2" />
+                                    View Details
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      // Edit functionality can be added later
+                                      setOpenDropdown(null)
+                                      toast.info('Edit functionality coming soon')
+                                    }}
+                                    className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                  >
+                                    <Edit className="w-4 h-4 mr-2" />
+                                    Edit Manager
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      handleToggleStatus(manager.id)
+                                      setOpenDropdown(null)
+                                    }}
+                                    className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                  >
+                                    <Users className="w-4 h-4 mr-2" />
+                                    {manager.is_active ? 'Deactivate' : 'Activate'}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      handleDelete(manager.id)
+                                      setOpenDropdown(null)
+                                    }}
+                                    className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                                  >
+                                    <Trash2 className="w-4 h-4 mr-2" />
+                                    Delete Manager
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -435,42 +579,65 @@ export default function CreateFactoryManagerPage() {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-300">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="flex-1 min-w-[80px] bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
-                      >
-                        <Eye className="w-4 h-4 mr-1" />
-                        <span className="hidden sm:inline">View</span>
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="flex-1 min-w-[80px] bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100"
-                      >
-                        <Edit className="w-4 h-4 mr-1" />
-                        <span className="hidden sm:inline">Edit</span>
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => handleToggleStatus(manager.id)}
-                        className="flex-1 min-w-[100px] bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
-                      >
-                        <span className="text-xs">
-                          {manager.is_active ? 'Deactivate' : 'Activate'}
-                        </span>
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => handleDelete(manager.id)}
-                        className="flex-1 min-w-[80px] bg-red-50 border-red-200 text-red-700 hover:bg-red-100"
-                      >
-                        <Trash2 className="w-4 h-4 mr-1" />
-                        <span className="hidden sm:inline">Delete</span>
-                      </Button>
+                    <div className="flex justify-end pt-3 border-t border-gray-300">
+                      <div className="relative" ref={openDropdown === `mobile-${manager.id}` ? dropdownRef : null}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setOpenDropdown(openDropdown === `mobile-${manager.id}` ? null : `mobile-${manager.id}`)}
+                          className="bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100"
+                        >
+                          <MoreVertical className="w-4 h-4 mr-2" />
+                          Actions
+                        </Button>
+                        
+                        {openDropdown === `mobile-${manager.id}` && (
+                          <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+                            <div className="py-1">
+                              <button
+                                onClick={() => {
+                                  setOpenDropdown(null)
+                                  toast.info('View functionality coming soon')
+                                }}
+                                className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                              >
+                                <Eye className="w-4 h-4 mr-2" />
+                                View Details
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setOpenDropdown(null)
+                                  toast.info('Edit functionality coming soon')
+                                }}
+                                className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                              >
+                                <Edit className="w-4 h-4 mr-2" />
+                                Edit Manager
+                              </button>
+                              <button
+                                onClick={() => {
+                                  handleToggleStatus(manager.id)
+                                  setOpenDropdown(null)
+                                }}
+                                className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                              >
+                                <Users className="w-4 h-4 mr-2" />
+                                {manager.is_active ? 'Deactivate' : 'Activate'}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  handleDelete(manager.id)
+                                  setOpenDropdown(null)
+                                }}
+                                className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Delete Manager
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}

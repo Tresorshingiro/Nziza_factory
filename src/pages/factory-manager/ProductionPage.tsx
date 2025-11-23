@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../stores/authStore'
-import { reduceMilkInventoryOnProduction, addCheeseInventoryOnProduction } from '../../utils/inventoryUtils'
-import { Plus, Package, Milk, TrendingUp, AlertCircle, Edit, Eye, Trash2, X } from 'lucide-react'
+import { reduceMilkInventoryOnProduction } from '../../utils/inventoryUtils'
+import { Plus, Package, Milk, TrendingUp, AlertCircle, Edit, Eye, Trash2, X, MoreVertical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -46,6 +46,8 @@ export default function ProductionPage() {
   const [isViewModalOpen, setIsViewModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [selectedBatch, setSelectedBatch] = useState<ProductionBatch | null>(null)
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -59,12 +61,14 @@ export default function ProductionPage() {
 
   // Form state
   const [formData, setFormData] = useState<{
-    cheese_type: Database['public']['Tables']['production_batches']['Row']['cheese_type']
+    cheese_type: string
     milk_used_liters: string
+    cheese_produced_kg: string
     notes: string
   }>({
-    cheese_type: 'gouda',
+    cheese_type: '',
     milk_used_liters: '',
+    cheese_produced_kg: '',
     notes: ''
   })
   const [formLoading, setFormLoading] = useState(false)
@@ -121,6 +125,20 @@ export default function ProductionPage() {
   useEffect(() => {
     fetchProductionData()
   }, [user?.factory_id, dateFilter.startDate, dateFilter.endDate])
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setOpenDropdown(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [])
 
   // Filter batches by date range
   const filteredBatches = batches.filter(batch => {
@@ -192,77 +210,66 @@ export default function ProductionPage() {
 
     try {
       const milkLiters = parseFloat(formData.milk_used_liters)
+      const cheeseProduced = parseFloat(formData.cheese_produced_kg)
+      
+      // Validate inputs
       if (!milkLiters || milkLiters <= 0) {
         toast.error('Please enter a valid milk quantity')
         return
       }
+      if (!cheeseProduced || cheeseProduced <= 0) {
+        toast.error('Please enter a valid cheese quantity')
+        return
+      }
+      if (!formData.cheese_type.trim()) {
+        toast.error('Please enter a cheese type')
+        return
+      }
 
-      const production = calculateProduction(formData.cheese_type, milkLiters)
       const batchNumber = generateBatchNumber(formData.cheese_type)
 
-      const insertData: ProductionBatchInsert = {
+      // Calculate conversion ratio from user inputs
+      const conversionRatio = milkLiters / cheeseProduced
+
+      // Production batch data - no transfer_status needed since we're recording to factory stock directly
+      const insertData = {
         factory_id: user?.factory_id || '11111111-1111-1111-1111-111111111111',
         batch_number: batchNumber,
         production_date: new Date().toISOString().split('T')[0],
-        cheese_type: formData.cheese_type,
+        cheese_type: formData.cheese_type.trim(),
         milk_used_liters: milkLiters,
-        cheese_produced_kg: production.cheese_produced_kg,
-        conversion_ratio: production.conversion_ratio,
-        waste_kg: production.waste_kg,
-        byproduct_kg: production.byproduct_kg,
-        quality_score: production.quality_score,
+        cheese_produced_kg: cheeseProduced,
+        conversion_ratio: conversionRatio,
+        waste_kg: 0, // User can add this manually if needed
+        byproduct_kg: 0, // User can add this manually if needed
+        quality_score: 85, // Default quality score
         notes: formData.notes || null,
         supervisor_id: user?.id || '',
         status: 'completed'
       }
 
+      console.log('Creating production batch:', insertData)
+      
       const { data: newBatch, error } = await (supabase
         .from('production_batches') as any)
         .insert(insertData)
         .select()
         .single()
 
-      if (error) throw error
-
-      // Update inventory automatically
-      if (user?.factory_id) {
-        // Reduce milk inventory
-        const milkReductionResult = await reduceMilkInventoryOnProduction(
-          user.factory_id,
-          milkLiters,
-          user.id,
-          newBatch?.id
-        )
-
-        // Add cheese to inventory (calculate unit cost as milk cost / conversion ratio)
-        const estimatedCheeseUnitCost = (milkLiters * 400) / production.cheese_produced_kg // Assuming 400 RWF per liter milk cost
-        const cheeseAdditionResult = await addCheeseInventoryOnProduction(
-          user.factory_id,
-          formData.cheese_type,
-          production.cheese_produced_kg,
-          estimatedCheeseUnitCost,
-          user.id,
-          newBatch?.id
-        )
-
-        // Show comprehensive success message
-        if (milkReductionResult.success && cheeseAdditionResult.success) {
-          toast.success(`Production batch created! ${milkReductionResult.message.toLowerCase()} and ${cheeseAdditionResult.message.toLowerCase()}`)
-        } else {
-          toast.success('Production batch created successfully!')
-          if (!milkReductionResult.success) {
-            toast.error(`Milk inventory error: ${milkReductionResult.message}`)
-          }
-          if (!cheeseAdditionResult.success) {
-            toast.error(`Cheese inventory error: ${cheeseAdditionResult.message}`)
-          }
-        }
-      } else {
-        toast.success('Production batch created successfully!')
+      if (error) {
+        console.error('Database error details:', error)
+        throw error
       }
 
+      // Immediately record production to factory stock
+      if (newBatch) {
+        await handleRecordToFactoryStock(newBatch)
+      }
+
+      toast.success(`Production batch created and recorded to factory stock! Batch #${batchNumber}`)
+
       setShowForm(false)
-      setFormData({ cheese_type: 'gouda', milk_used_liters: '', notes: '' })
+      setFormData({ cheese_type: '', milk_used_liters: '', cheese_produced_kg: '', notes: '' })
       fetchProductionData()
 
     } catch (error: any) {
@@ -270,6 +277,126 @@ export default function ProductionPage() {
       toast.error('Failed to create production batch')
     } finally {
       setFormLoading(false)
+    }
+  }
+
+  // Handle recording production to factory stock
+  const handleRecordToFactoryStock = async (batch: ProductionBatch) => {
+    if (!user?.factory_id) {
+      toast.error('Factory information not available')
+      return
+    }
+
+    try {
+      // Calculate estimated unit cost based on milk cost
+      const estimatedCheeseUnitCost = (batch.milk_used_liters * 400) / batch.cheese_produced_kg // Assuming 400 RWF per liter milk cost
+      
+      // Generate unique item code for this production batch
+      const itemCode = `${batch.cheese_type.toUpperCase()}-${batch.batch_number}`
+      
+      // Check if stock item already exists for this cheese type in the factory
+      const { data: existingStock, error: checkError } = await (supabase
+        .from('stock') as any)
+        .select('*')
+        .eq('factory_id', user.factory_id)
+        .eq('stock_type', 'finished_goods')
+        .eq('cheese_type', batch.cheese_type)
+        .single()
+
+      if (existingStock && !checkError) {
+        // Update existing stock quantity and weighted average cost
+        const newQuantity = existingStock.quantity + batch.cheese_produced_kg
+        const newAverageUnitCost = ((existingStock.quantity * existingStock.unit_cost) + (batch.cheese_produced_kg * estimatedCheeseUnitCost)) / newQuantity
+        const newTotalValue = newQuantity * newAverageUnitCost
+
+        const { error: updateError } = await (supabase
+          .from('stock') as any)
+          .update({
+            quantity: newQuantity,
+            unit_cost: newAverageUnitCost,
+            total_value: newTotalValue,
+            last_updated_by: user.id,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingStock.id)
+
+        if (updateError) throw updateError
+      } else {
+        // Create new stock item for this cheese type
+        const stockData = {
+          factory_id: user.factory_id,
+          stock_type: 'finished_goods' as const,
+          item_name: `${batch.cheese_type.charAt(0).toUpperCase() + batch.cheese_type.slice(1)} Cheese`,
+          item_code: itemCode,
+          cheese_type: batch.cheese_type,
+          quantity: batch.cheese_produced_kg,
+          unit: 'kg',
+          unit_cost: estimatedCheeseUnitCost,
+          total_value: batch.cheese_produced_kg * estimatedCheeseUnitCost,
+          reorder_level: 50, // Default reorder level
+          location: 'Factory Storage',
+          batch_id: batch.id,
+          last_updated_by: user.id
+        }
+
+        const { error: insertError } = await (supabase
+          .from('stock') as any)
+          .insert([stockData])
+
+        if (insertError) throw insertError
+      }
+
+      // Record stock movement (use the latest stock record for movement tracking)
+      const { data: stockRecord } = await (supabase
+        .from('stock') as any)
+        .select('id')
+        .eq('factory_id', user.factory_id)
+        .eq('stock_type', 'finished_goods')
+        .eq('cheese_type', batch.cheese_type)
+        .single()
+
+      if (stockRecord) {
+        const { error: movementError } = await (supabase
+          .from('stock_movements') as any)
+          .insert([{
+            stock_id: stockRecord.id,
+            factory_id: user.factory_id,
+            movement_type: 'in',
+            quantity: batch.cheese_produced_kg,
+            reason: 'Production completion',
+            reference_id: batch.id,
+            reference_type: 'production_batch',
+            notes: `Production batch #${batch.batch_number}`,
+            recorded_by: user.id
+          }])
+
+        if (movementError) {
+          console.error('Error creating stock movement:', movementError)
+        }
+      }
+
+      // Update batch status to 'recorded'
+      const { error: updateError } = await (supabase
+        .from('production_batches') as any)
+        .update({ 
+          status: 'completed',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', batch.id)
+
+      if (updateError) {
+        console.error('Error updating batch status:', updateError)
+        toast.error('Production recorded but failed to update batch status')
+      } else {
+        toast.success(`Successfully recorded ${batch.cheese_produced_kg}kg of ${batch.cheese_type} to factory stock!`)
+      }
+
+      // Refresh data
+      fetchProductionData()
+
+    } catch (error: any) {
+      console.error('Error recording to factory stock:', error)
+      toast.error('Failed to record to factory stock')
     }
   }
 
@@ -296,6 +423,12 @@ export default function ProductionPage() {
     }
   }
 
+
+
+  const formatCheeseType = (type: string) => {
+    return type.charAt(0).toUpperCase() + type.slice(1)
+  }
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'completed':
@@ -307,16 +440,6 @@ export default function ProductionPage() {
       default:
         return <Badge variant="outline">{status}</Badge>
     }
-  }
-
-  const getQualityBadge = (score: number) => {
-    if (score >= 95) return <Badge variant="success">{score}%</Badge>
-    if (score >= 90) return <Badge variant="secondary">{score}%</Badge>
-    return <Badge variant="destructive">{score}%</Badge>
-  }
-
-  const formatCheeseType = (type: string) => {
-    return type.charAt(0).toUpperCase() + type.slice(1)
   }
 
   if (loading) {
@@ -482,17 +605,14 @@ export default function ProductionPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Cheese Type
                   </label>
-                  <select
+                  <input
+                    type="text"
                     value={formData.cheese_type}
-                    onChange={(e) => setFormData(prev => ({ ...prev, cheese_type: e.target.value as any }))}
+                    onChange={(e) => setFormData(prev => ({ ...prev, cheese_type: e.target.value }))}
                     className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-gray-900"
+                    placeholder="e.g. Gouda, Cheddar, Mozzarella..."
                     required
-                  >
-                    <option value="gouda">Gouda (10:1 ratio)</option>
-                    <option value="cheddar">Cheddar (8:1 ratio)</option>
-                    <option value="mozzarella">Mozzarella (6:1 ratio)</option>
-                    <option value="other">Other (9:1 ratio)</option>
-                  </select>
+                  />
                 </div>
 
                 <div>
@@ -502,7 +622,7 @@ export default function ProductionPage() {
                   <input
                     type="number"
                     step="0.1"
-                    min="1"
+                    min="0.1"
                     value={formData.milk_used_liters}
                     onChange={(e) => setFormData(prev => ({ ...prev, milk_used_liters: e.target.value }))}
                     className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-gray-900"
@@ -512,42 +632,21 @@ export default function ProductionPage() {
                 </div>
               </div>
 
-              {/* Production Preview */}
-              {formData.milk_used_liters && (
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <h4 className="font-medium text-gray-900 mb-2">Production Preview</h4>
-                  {(() => {
-                    const milk = parseFloat(formData.milk_used_liters) || 0
-                    const preview = calculateProduction(formData.cheese_type, milk)
-                    return (
-                      <div className="space-y-3">
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-                          <div>
-                            <span className="text-gray-600">Cheese Output:</span>
-                            <p className="font-medium text-green-600">{preview.cheese_produced_kg} kg</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-600">Conversion Ratio:</span>
-                            <p className="font-medium">{preview.conversion_ratio}:1</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-600">Waste (spillage, samples):</span>
-                            <p className="font-medium text-red-600">{preview.waste_kg} kg</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-600">Whey Byproduct:</span>
-                            <p className="font-medium text-blue-600">{preview.byproduct_kg} kg</p>
-                          </div>
-                        </div>
-                        <div className="text-xs text-gray-500 border-t pt-2">
-                          <p><strong>Waste calculation:</strong> 2% of milk weight (includes spillage, cleaning losses, quality samples)</p>
-                          <p><strong>Byproduct calculation:</strong> 85% whey recovery from original milk volume</p>
-                        </div>
-                      </div>
-                    )
-                  })()}
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Cheese Produced (kg)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  value={formData.cheese_produced_kg}
+                  onChange={(e) => setFormData(prev => ({ ...prev, cheese_produced_kg: e.target.value }))}
+                  className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-gray-900"
+                  placeholder="Enter cheese quantity produced"
+                  required
+                />
+              </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -609,8 +708,6 @@ export default function ProductionPage() {
                       <th className="text-left py-3 px-4 font-medium text-gray-900">Cheese Type</th>
                       <th className="text-left py-3 px-4 font-medium text-gray-900">Milk Used</th>
                       <th className="text-left py-3 px-4 font-medium text-gray-900">Produced</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-900">Waste (kg)</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-900">Quality</th>
                       <th className="text-left py-3 px-4 font-medium text-gray-900">Status</th>
                       <th className="text-left py-3 px-4 font-medium text-gray-900">Supervisor</th>
                       <th className="text-left py-3 px-4 font-medium text-gray-900">Actions</th>
@@ -628,45 +725,54 @@ export default function ProductionPage() {
                         </td>
                         <td className="py-3 px-4 text-gray-600">{batch.milk_used_liters.toLocaleString()} L</td>
                         <td className="py-3 px-4 text-gray-600">{batch.cheese_produced_kg} kg</td>
-                        <td className="py-3 px-4 text-red-600 font-medium" title="Includes spillage, cleaning losses, and quality samples">
-                          {batch.waste_kg || 0} kg
-                        </td>
-                        <td className="py-3 px-4">{getQualityBadge(batch.quality_score || 0)}</td>
                         <td className="py-3 px-4">{getStatusBadge(batch.status)}</td>
                         <td className="py-3 px-4 text-gray-600">{batch.supervisor?.full_name || 'Unknown'}</td>
                         <td className="py-3 px-4">
-                          <div className="flex space-x-2">
+                          <div className="relative" ref={openDropdown === batch.id ? dropdownRef : null}>
                             <button
-                              onClick={() => handleView(batch)}
-                              className="text-blue-600 hover:text-blue-800 transition-colors"
-                              title="View Details"
+                              onClick={() => setOpenDropdown(openDropdown === batch.id ? null : batch.id)}
+                              className="text-gray-600 hover:text-gray-800 transition-colors"
+                              title="Actions"
                             >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                              </svg>
+                              <MoreVertical className="w-5 h-5" />
                             </button>
-                            <button
-                              onClick={() => {
-                                setSelectedBatch(batch);
-                                setIsEditModalOpen(true);
-                              }}
-                              className="text-orange-600 hover:text-orange-800 transition-colors"
-                              title="Edit"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                              </svg>
-                            </button>
-                            <button
-                              onClick={() => handleDelete(batch)}
-                              className="text-red-600 hover:text-red-800 transition-colors"
-                              title="Delete"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
+                            {openDropdown === batch.id && (
+                              <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200">
+                                <div className="py-1">
+                                  <button
+                                    onClick={() => {
+                                      handleView(batch)
+                                      setOpenDropdown(null)
+                                    }}
+                                    className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
+                                  >
+                                    <Eye className="w-4 h-4 mr-3" />
+                                    View Details
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedBatch(batch)
+                                      setIsEditModalOpen(true)
+                                      setOpenDropdown(null)
+                                    }}
+                                    className="flex items-center px-4 py-2 text-sm text-orange-700 hover:bg-orange-50 w-full text-left"
+                                  >
+                                    <Edit className="w-4 h-4 mr-3" />
+                                    Edit
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      handleDelete(batch)
+                                      setOpenDropdown(null)
+                                    }}
+                                    className="flex items-center px-4 py-2 text-sm text-red-700 hover:bg-red-50 w-full text-left"
+                                  >
+                                    <Trash2 className="w-4 h-4 mr-3" />
+                                    Delete
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -698,14 +804,6 @@ export default function ProductionPage() {
                       <div>
                         <p className="text-xs text-gray-500 uppercase font-medium">Cheese Produced</p>
                         <p className="text-lg font-semibold text-green-600">{batch.cheese_produced_kg} kg</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500 uppercase font-medium">Waste</p>
-                        <p className="text-sm font-medium text-red-600">{batch.waste_kg || 0} kg</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500 uppercase font-medium">Quality Score</p>
-                        <div className="mt-1">{getQualityBadge(batch.quality_score || 0)}</div>
                       </div>
                     </div>
                     
@@ -818,10 +916,6 @@ export default function ProductionPage() {
                       <p className="text-gray-900">{selectedBatch.supervisor?.full_name || 'Unknown'}</p>
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-gray-500">Quality Score</label>
-                      <div className="mt-1">{getQualityBadge(selectedBatch.quality_score || 0)}</div>
-                    </div>
-                    <div>
                       <label className="text-sm font-medium text-gray-500">Conversion Ratio</label>
                       <p className="text-gray-900">{selectedBatch.conversion_ratio}:1</p>
                     </div>
@@ -831,7 +925,7 @@ export default function ProductionPage() {
                 {/* Production Metrics */}
                 <div className="border-t pt-6">
                   <h3 className="text-lg font-medium text-gray-900 mb-4">Production Metrics</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="bg-blue-50 p-4 rounded-lg">
                       <label className="text-sm font-medium text-blue-700">Milk Used</label>
                       <p className="text-2xl font-bold text-blue-600">{selectedBatch.milk_used_liters.toLocaleString()}</p>
@@ -841,16 +935,6 @@ export default function ProductionPage() {
                       <label className="text-sm font-medium text-green-700">Cheese Produced</label>
                       <p className="text-2xl font-bold text-green-600">{selectedBatch.cheese_produced_kg}</p>
                       <p className="text-sm text-green-600">Kilograms</p>
-                    </div>
-                    <div className="bg-yellow-50 p-4 rounded-lg">
-                      <label className="text-sm font-medium text-yellow-700">Byproduct</label>
-                      <p className="text-2xl font-bold text-yellow-600">{selectedBatch.byproduct_kg || 0}</p>
-                      <p className="text-sm text-yellow-600">Kilograms</p>
-                    </div>
-                    <div className="bg-red-50 p-4 rounded-lg">
-                      <label className="text-sm font-medium text-red-700">Waste</label>
-                      <p className="text-2xl font-bold text-red-600">{selectedBatch.waste_kg || 0}</p>
-                      <p className="text-sm text-red-600">Kilograms</p>
                     </div>
                   </div>
                 </div>

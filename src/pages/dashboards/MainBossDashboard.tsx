@@ -1,112 +1,137 @@
 import { useState, useEffect } from 'react'
 import { 
   Factory, 
-  Users, 
   TrendingUp, 
-  DollarSign, 
   Package, 
-  AlertTriangle, 
   BarChart3, 
   Calendar,
   RefreshCw,
-  Eye,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Droplets,
+  Milk,
+  Target
 } from 'lucide-react'
-import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from 'recharts'
+import { 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer, 
+  LineChart, 
+  Line, 
+  BarChart,
+  Bar,
+  Legend,
+  ComposedChart,
+  Area,
+  AreaChart
+} from 'recharts'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../stores/authStore'
 import toast from 'react-hot-toast'
 
-interface ExecutiveStats {
-  totalFactories: number
-  activeFactories: number
-  frozenFactories: number
-  totalUsers: number
-  totalProduction: number
-  totalRevenue: number
-  totalExpenses: number
-  netProfit: number
-  lowStockAlerts: number
-  pendingReports: number
-}
-
-interface FactoryPerformance {
+// Database entity types
+interface Factory {
   id: string
   name: string
   code: string
-  production: number
-  revenue: number
-  expenses: number
-  profit: number
-  efficiency: number
   status: string
+  location?: string
 }
 
-interface MonthlyTrend {
-  month: string
-  production: number
-  revenue: number
-  expenses: number
-  profit: number
+interface DailyMetrics {
+  date: string
+  factories: FactoryDailyData[]
 }
 
-interface TopFactory {
-  name: string
-  production: number
-  revenue: number
-  efficiency: number
-}
-
-interface RecentActivity {
-  id: string
-  type: string
-  description: string
+interface FactoryDailyData {
+  factory_id: string
   factory_name: string
-  user_name: string
-  created_at: string
-  status?: string
+  milk_collected: number
+  cheese_produced: number
+  conversion_rate: number
+  sales_revenue: number
+}
+
+interface MilkCollectionData {
+  date: string
+  [factoryName: string]: any // Dynamic factory names as keys
+}
+
+interface CheeseProductionData {
+  factory_name: string
+  production: number
+  target?: number
+}
+
+interface ConversionEfficiency {
+  factory_name: string
+  efficiency: number
+  milk_used: number
+  cheese_produced: number
+}
+
+interface StockMovement {
+  date: string
+  incoming: number
+  outgoing: number
+  net_change: number
+}
+
+interface CustomerRanking {
+  customer_name: string
+  total_orders: number
+  total_revenue: number
+  last_order_date: string
+}
+
+interface DashboardSummary {
+  totalMilkToday: number
+  totalCheeseToday: number
+  avgConversionRate: number
+  totalRevenue: number
+  activeFactories: number
 }
 
 const COLORS = ['#f59e0b', '#06b6d4', '#10b981', '#ef4444', '#8b5cf6', '#6366f1']
 
 export default function MainBossDashboard() {
   const { user } = useAuthStore()
-  const [executiveStats, setExecutiveStats] = useState<ExecutiveStats>({
-    totalFactories: 0,
-    activeFactories: 0,
-    frozenFactories: 0,
-    totalUsers: 0,
-    totalProduction: 0,
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
+  const [dashboardSummary, setDashboardSummary] = useState({
+    totalMilkToday: 0,
+    totalCheeseToday: 0,
+    avgConversionRate: 0, // Will be repurposed as main stock quantity
     totalRevenue: 0,
-    totalExpenses: 0,
-    netProfit: 0,
-    lowStockAlerts: 0,
-    pendingReports: 0
+    activeFactories: 0,
+    mainStockValue: 0
   })
-  const [factoryPerformance, setFactoryPerformance] = useState<FactoryPerformance[]>([])
-  const [monthlyTrends, setMonthlyTrends] = useState<MonthlyTrend[]>([])
-  const [topFactories, setTopFactories] = useState<TopFactory[]>([])
-  const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([])
+  const [milkCollectionData, setMilkCollectionData] = useState<MilkCollectionData[]>([])
+  const [cheeseProductionData, setCheeseProductionData] = useState<CheeseProductionData[]>([])
+  const [conversionEfficiency, setConversionEfficiency] = useState<ConversionEfficiency[]>([])
+  const [stockMovement, setStockMovement] = useState<StockMovement[]>([])
+  const [customerRanking, setCustomerRanking] = useState<CustomerRanking[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
-    fetchExecutiveDashboard()
-  }, [])
+    fetchDashboardData()
+  }, [selectedDate])
 
-  const fetchExecutiveDashboard = async () => {
+  const fetchDashboardData = async () => {
     try {
       setLoading(true)
       await Promise.all([
-        fetchExecutiveStats(),
-        fetchFactoryPerformance(),
-        fetchMonthlyTrends(),
-        fetchTopFactories(),
-        fetchRecentActivities()
+        fetchDashboardSummary(),
+        fetchMilkCollectionData(),
+        fetchCheeseProductionData(),
+        fetchConversionEfficiency(),
+        fetchStockMovement(),
+        fetchCustomerRanking()
       ])
     } catch (error) {
-      console.error('Error fetching executive dashboard:', error)
+      console.error('Error fetching dashboard data:', error)
       toast.error('Failed to load dashboard data')
     } finally {
       setLoading(false)
@@ -115,211 +140,313 @@ export default function MainBossDashboard() {
 
   const refreshDashboard = async () => {
     setRefreshing(true)
-    await fetchExecutiveDashboard()
+    await fetchDashboardData()
     setRefreshing(false)
     toast.success('Dashboard refreshed successfully')
   }
 
-  const fetchExecutiveStats = async () => {
+  const fetchDashboardSummary = async () => {
     try {
-      // Fetch all factories
-      const { data: factories } = await supabase.from('factories').select('*')
-      
-      // Fetch all users
-      const { data: users } = await supabase.from('users').select('*')
-      
-      // Fetch production data
-      const { data: production } = await supabase.from('production_batches').select('cheese_produced_kg')
-      
-      // Fetch sales data
-      const { data: sales } = await supabase.from('sales_orders').select('total')
-      
-      // Fetch expenses data
-      const { data: expenses } = await supabase.from('expenses').select('total')
-      
-      // Fetch stock data for alerts
-      const { data: stock } = await supabase.from('stock').select('quantity, reorder_level')
-      
-      // Calculate totals
-      const totalProduction = production?.reduce((sum, p) => sum + (p.cheese_produced_kg || 0), 0) || 0
-      const totalRevenue = sales?.reduce((sum, s) => sum + (s.total || 0), 0) || 0
-      const totalExpenses = expenses?.reduce((sum, e) => sum + (e.total || 0), 0) || 0
-      const lowStockAlerts = stock?.filter(s => s.quantity <= (s.reorder_level || 0)).length || 0
+      // Get factories
+      const { data: factories } = await supabase
+        .from('factories')
+        .select('id, name, status')
+        .eq('status', 'active')
 
-      setExecutiveStats({
-        totalFactories: factories?.length || 0,
-        activeFactories: factories?.filter(f => f.status === 'active').length || 0,
-        frozenFactories: factories?.filter(f => f.status === 'frozen').length || 0,
-        totalUsers: users?.length || 0,
-        totalProduction,
+      const activeFactories = factories?.length || 0
+
+      // Get today's milk collection (using exact date match)
+      const { data: milkData, error: milkError } = await supabase
+        .from('milk_collections')
+        .select('quantity_liters, collection_date')
+        .eq('collection_date', selectedDate)
+
+      console.log('Milk collection query:', { selectedDate, milkData, milkError })
+
+      // Also get recent milk collection data for fallback
+      const { data: recentMilkData } = await supabase
+        .from('milk_collections')
+        .select('quantity_liters, collection_date')
+        .gte('collection_date', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
+        .order('collection_date', { ascending: false })
+
+      console.log('Recent milk data (last 7 days):', recentMilkData)
+
+      const totalMilkToday = milkData?.reduce((sum: number, item: any) => sum + (item.quantity_liters || 0), 0) || 0
+
+      // Get today's cheese production (using exact date match)
+      const { data: productionData, error: prodError } = await supabase
+        .from('production_batches')
+        .select('cheese_produced_kg, milk_used_liters, production_date')
+        .eq('production_date', selectedDate)
+
+      console.log('Production query:', { selectedDate, productionData, prodError })
+
+      // Also get recent production data for fallback
+      const { data: recentProdData } = await supabase
+        .from('production_batches')
+        .select('cheese_produced_kg, production_date')
+        .gte('production_date', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
+        .order('production_date', { ascending: false })
+
+      console.log('Recent production data (last 7 days):', recentProdData)
+
+      const totalCheeseToday = productionData?.reduce((sum: number, item: any) => sum + (item.cheese_produced_kg || 0), 0) || 0
+
+      // Get main stock summary
+      const { data: mainStockData } = await supabase
+        .from('main_stock')
+        .select('total_quantity, total_value')
+
+      const totalMainStockQty = mainStockData?.reduce((sum: number, item: any) => sum + (item.total_quantity || 0), 0) || 0
+      const totalMainStockValue = mainStockData?.reduce((sum: number, item: any) => sum + (item.total_value || 0), 0) || 0
+
+      // Get today's revenue (using date range)
+      const { data: salesData } = await supabase
+        .from('sales_orders')
+        .select('total')
+        .gte('order_date', selectedDate)
+        .lt('order_date', new Date(new Date(selectedDate).getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0])
+
+      const totalRevenue = salesData?.reduce((sum: number, item: any) => sum + (item.total || 0), 0) || 0
+
+      setDashboardSummary({
+        totalMilkToday,
+        totalCheeseToday,
+        avgConversionRate: totalMainStockQty, // Changed to main stock quantity
         totalRevenue,
-        totalExpenses,
-        netProfit: totalRevenue - totalExpenses,
-        lowStockAlerts,
-        pendingReports: 0 // This would come from daily_reports table
+        activeFactories,
+        mainStockValue: totalMainStockValue // Add main stock value
       })
     } catch (error) {
-      console.error('Error fetching executive stats:', error)
+      console.error('Error fetching dashboard summary:', error)
     }
   }
 
-  const fetchFactoryPerformance = async () => {
+  const fetchMilkCollectionData = async () => {
     try {
-      const { data: factories } = await supabase.from('factories').select('id, name, code, status')
-      if (!factories) return
+      // Get last 7 days of data
+      const endDate = new Date(selectedDate)
+      const startDate = new Date(endDate)
+      startDate.setDate(startDate.getDate() - 6)
 
-      const performance: FactoryPerformance[] = []
+      const { data: factories } = await supabase
+        .from('factories')
+        .select('id, name')
+        .eq('status', 'active')
+
+      const { data: collections } = await supabase
+        .from('milk_collections')
+        .select(`
+          collection_date,
+          quantity_liters,
+          factories!inner(name)
+        `)
+        .gte('collection_date', startDate.toISOString().split('T')[0])
+        .lte('collection_date', selectedDate)
+        .order('collection_date')
+
+      // Group by date and factory
+      const groupedData: { [date: string]: { [factory: string]: number } } = {}
       
-      for (const factory of factories) {
-        // Get production for this factory
-        const { data: production } = await supabase
-          .from('production_batches')
-          .select('cheese_produced_kg')
-          .eq('factory_id', factory.id)
+      collections?.forEach((item: any) => {
+        const date = item.collection_date
+        const factoryName = item.factories?.name || 'Unknown'
+        
+        if (!groupedData[date]) {
+          groupedData[date] = {}
+        }
+        
+        if (!groupedData[date][factoryName]) {
+          groupedData[date][factoryName] = 0
+        }
+        
+        groupedData[date][factoryName] += item.quantity_liters || 0
+      })
 
-        // Get sales for this factory
-        const { data: sales } = await supabase
-          .from('sales_orders')
-          .select('total')
-          .eq('factory_id', factory.id)
+      // Convert to chart format
+      const chartData = Object.keys(groupedData).map(date => ({
+        date,
+        ...groupedData[date]
+      }))
 
-        // Get expenses for this factory
-        const { data: expenses } = await supabase
-          .from('expenses')
-          .select('total')
-          .eq('factory_id', factory.id)
-
-        const totalProduction = production?.reduce((sum, p) => sum + (p.cheese_produced_kg || 0), 0) || 0
-        const totalRevenue = sales?.reduce((sum, s) => sum + (s.total || 0), 0) || 0
-        const totalExpenses = expenses?.reduce((sum, e) => sum + (e.total || 0), 0) || 0
-        const profit = totalRevenue - totalExpenses
-        const efficiency = totalProduction > 0 ? Math.round((profit / totalProduction) * 100) : 0
-
-        performance.push({
-          id: factory.id,
-          name: factory.name,
-          code: factory.code,
-          production: totalProduction,
-          revenue: totalRevenue,
-          expenses: totalExpenses,
-          profit,
-          efficiency,
-          status: factory.status
-        })
-      }
-
-      setFactoryPerformance(performance.sort((a, b) => b.revenue - a.revenue))
+      setMilkCollectionData(chartData)
     } catch (error) {
-      console.error('Error fetching factory performance:', error)
+      console.error('Error fetching milk collection data:', error)
     }
   }
 
-  const fetchMonthlyTrends = async () => {
+  const fetchCheeseProductionData = async () => {
     try {
-      // Get last 6 months data
-      const months = []
-      for (let i = 5; i >= 0; i--) {
-        const date = new Date()
-        date.setMonth(date.getMonth() - i)
-        months.push({
-          month: date.toLocaleDateString('en-US', { month: 'short' }),
-          year: date.getFullYear(),
-          monthNum: date.getMonth() + 1
-        })
-      }
-
-      const trends = await Promise.all(
-        months.map(async ({ month, year, monthNum }) => {
-          // Production for the month
-          const { data: production } = await supabase
-            .from('production_batches')
-            .select('cheese_produced_kg')
-            .gte('production_date', `${year}-${monthNum.toString().padStart(2, '0')}-01`)
-            .lt('production_date', `${year}-${(monthNum + 1).toString().padStart(2, '0')}-01`)
-
-          // Sales for the month
-          const { data: sales } = await supabase
-            .from('sales_orders')
-            .select('total')
-            .gte('order_date', `${year}-${monthNum.toString().padStart(2, '0')}-01`)
-            .lt('order_date', `${year}-${(monthNum + 1).toString().padStart(2, '0')}-01`)
-
-          // Expenses for the month
-          const { data: expenses } = await supabase
-            .from('expenses')
-            .select('total')
-            .gte('expense_date', `${year}-${monthNum.toString().padStart(2, '0')}-01`)
-            .lt('expense_date', `${year}-${(monthNum + 1).toString().padStart(2, '0')}-01`)
-
-          const totalProduction = production?.reduce((sum, p) => sum + (p.cheese_produced_kg || 0), 0) || 0
-          const totalRevenue = sales?.reduce((sum, s) => sum + (s.total || 0), 0) || 0
-          const totalExpenses = expenses?.reduce((sum, e) => sum + (e.total || 0), 0) || 0
-
-          return {
-            month,
-            production: totalProduction,
-            revenue: totalRevenue,
-            expenses: totalExpenses,
-            profit: totalRevenue - totalExpenses
-          }
-        })
-      )
-
-      setMonthlyTrends(trends)
-    } catch (error) {
-      console.error('Error fetching monthly trends:', error)
-    }
-  }
-
-  const fetchTopFactories = async () => {
-    try {
-      const topPerformers = factoryPerformance
-        .filter(f => f.status === 'active')
-        .slice(0, 5)
-        .map(f => ({
-          name: f.name,
-          production: f.production,
-          revenue: f.revenue,
-          efficiency: f.efficiency
-        }))
-      
-      setTopFactories(topPerformers)
-    } catch (error) {
-      console.error('Error fetching top factories:', error)
-    }
-  }
-
-  const fetchRecentActivities = async () => {
-    try {
-      // This would typically come from an audit log or activity table
-      // For now, we'll simulate with recent data from various tables
-      const activities: RecentActivity[] = []
-      
-      // Get recent production batches
-      const { data: recentProduction } = await supabase
+      const { data: productionData } = await supabase
         .from('production_batches')
         .select(`
-          id, production_date, cheese_produced_kg,
-          factories(name),
-          users(full_name)
+          cheese_produced_kg,
+          factories!inner(name)
         `)
-        .order('created_at', { ascending: false })
-        .limit(5)
+        .eq('production_date', selectedDate)
 
-      recentProduction?.forEach((prod: any) => {
-        activities.push({
-          id: prod.id,
-          type: 'production',
-          description: `Produced ${prod.cheese_produced_kg}kg of cheese`,
-          factory_name: prod.factories?.name || 'Unknown Factory',
-          user_name: prod.users?.full_name || 'System',
-          created_at: prod.production_date
-        })
+      // Group by factory
+      const factoryProduction: { [factory: string]: number } = {}
+      
+      productionData?.forEach((item: any) => {
+        const factoryName = item.factories?.name || 'Unknown'
+        if (!factoryProduction[factoryName]) {
+          factoryProduction[factoryName] = 0
+        }
+        factoryProduction[factoryName] += item.cheese_produced_kg || 0
       })
 
-      setRecentActivities(activities.slice(0, 10))
+      const chartData = Object.keys(factoryProduction).map(factory => ({
+        factory_name: factory,
+        production: factoryProduction[factory]
+      }))
+
+      setCheeseProductionData(chartData)
     } catch (error) {
-      console.error('Error fetching recent activities:', error)
+      console.error('Error fetching cheese production data:', error)
+    }
+  }
+
+  const fetchConversionEfficiency = async () => {
+    try {
+      const { data: productionData } = await supabase
+        .from('production_batches')
+        .select(`
+          cheese_produced_kg,
+          milk_used_liters,
+          factories!inner(name)
+        `)
+        .eq('production_date', selectedDate)
+
+      // Group by factory
+      const factoryEfficiency: { [factory: string]: { milk: number, cheese: number } } = {}
+      
+      productionData?.forEach((item: any) => {
+        const factoryName = item.factories?.name || 'Unknown'
+        if (!factoryEfficiency[factoryName]) {
+          factoryEfficiency[factoryName] = { milk: 0, cheese: 0 }
+        }
+        factoryEfficiency[factoryName].milk += item.milk_used_liters || 0
+        factoryEfficiency[factoryName].cheese += item.cheese_produced_kg || 0
+      })
+
+      const chartData = Object.keys(factoryEfficiency).map(factory => {
+        const data = factoryEfficiency[factory]
+        const efficiency = data.milk > 0 ? (data.cheese / data.milk) * 100 : 0
+        return {
+          factory_name: factory,
+          efficiency: Math.round(efficiency * 100) / 100,
+          milk_used: data.milk,
+          cheese_produced: data.cheese
+        }
+      })
+
+      setConversionEfficiency(chartData)
+    } catch (error) {
+      console.error('Error fetching conversion efficiency:', error)
+    }
+  }
+
+  const fetchStockMovement = async () => {
+    try {
+      // Get last 7 days of main stock movements
+      const endDate = new Date(selectedDate)
+      const startDate = new Date(endDate)
+      startDate.setDate(startDate.getDate() - 6)
+
+      // Get main stock movements (transfers in and out)
+      const { data: stockMovements } = await supabase
+        .from('main_stock_movements')
+        .select('movement_type, quantity, created_at, notes')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', new Date(endDate.getTime() + 24 * 60 * 60 * 1000).toISOString())
+        .order('created_at', { ascending: true })
+
+      console.log('Stock movements data:', { stockMovements, startDate: startDate.toISOString(), endDate: endDate.toISOString() })
+
+      // Group by date
+      const movements: { [date: string]: { incoming: number, outgoing: number } } = {}
+      
+      // Process main stock movements
+      stockMovements?.forEach((movement: any) => {
+        const date = movement.created_at.split('T')[0] // Extract date part
+        if (!movements[date]) {
+          movements[date] = { incoming: 0, outgoing: 0 }
+        }
+        
+        // movement_type: 'in' for incoming, 'out' for outgoing
+        if (movement.movement_type === 'in') {
+          movements[date].incoming += movement.quantity || 0
+        } else if (movement.movement_type === 'out') {
+          movements[date].outgoing += movement.quantity || 0
+        }
+      })
+
+      // Fill in missing dates with zero values
+      for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+        const dateStr = d.toISOString().split('T')[0]
+        if (!movements[dateStr]) {
+          movements[dateStr] = { incoming: 0, outgoing: 0 }
+        }
+      }
+
+      const chartData = Object.keys(movements).map(date => ({
+        date,
+        incoming: movements[date].incoming,
+        outgoing: movements[date].outgoing,
+        net_change: movements[date].incoming - movements[date].outgoing
+      })).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
+      console.log('Processed stock movement chart data:', chartData)
+      setStockMovement(chartData)
+    } catch (error) {
+      console.error('Error fetching stock movement:', error)
+    }
+  }
+
+  const fetchCustomerRanking = async () => {
+    try {
+      const { data: salesData } = await supabase
+        .from('sales_orders')
+        .select(`
+          total,
+          order_date,
+          customers!inner(name),
+          sales_order_items!inner(quantity)
+        `)
+        .gte('order_date', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]) // Last 30 days
+
+      // Group by customer
+      const customerStats: { [customer: string]: { orders: number, revenue: number, lastOrder: string } } = {}
+      
+      salesData?.forEach((item: any) => {
+        const customerName = item.customers?.name || 'Unknown Customer'
+        if (!customerStats[customerName]) {
+          customerStats[customerName] = { orders: 0, revenue: 0, lastOrder: item.order_date }
+        }
+        customerStats[customerName].orders += 1
+        customerStats[customerName].revenue += item.total || 0
+        
+        // Update last order date if this is more recent
+        if (new Date(item.order_date) > new Date(customerStats[customerName].lastOrder)) {
+          customerStats[customerName].lastOrder = item.order_date
+        }
+      })
+
+      const chartData = Object.keys(customerStats)
+        .map(customer => ({
+          customer_name: customer,
+          total_orders: customerStats[customer].orders,
+          total_revenue: customerStats[customer].revenue,
+          last_order_date: customerStats[customer].lastOrder
+        }))
+        .sort((a, b) => b.total_revenue - a.total_revenue)
+        .slice(0, 10) // Top 10 customers
+
+      setCustomerRanking(chartData)
+    } catch (error) {
+      console.error('Error fetching customer ranking:', error)
     }
   }
 
@@ -334,8 +461,8 @@ export default function MainBossDashboard() {
           <div className="h-8 bg-gray-200 rounded w-1/3 mb-2"></div>
           <div className="h-4 bg-gray-200 rounded w-1/2"></div>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
-          {[1, 2, 3, 4].map(i => (
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-6">
+          {[1, 2, 3, 4, 5].map(i => (
             <div key={i} className="animate-pulse">
               <div className="h-32 bg-gray-200 rounded-lg"></div>
             </div>
@@ -347,488 +474,252 @@ export default function MainBossDashboard() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Header */}
+      {/* Header with Date Selector */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Executive Dashboard</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Production Dashboard</h1>
           <p className="text-gray-600 mt-2 text-sm sm:text-base">
-            Strategic overview of all factories and operations
+            Daily production metrics and factory performance overview
           </p>
         </div>
-        <button
-          onClick={refreshDashboard}
-          disabled={refreshing}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          {refreshing ? 'Refreshing...' : 'Refresh'}
-        </button>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-gray-500" />
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+            />
+          </div>
+          <button
+            onClick={refreshDashboard}
+            disabled={refreshing}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
-      {/* Executive Stats Cards */}
+      {/* Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-6">
-        <StatsCard
-          title="Total Factories"
-          value={executiveStats.totalFactories.toString()}
-          icon={Factory}
-          color="blue"
-          change={`${executiveStats.activeFactories} active, ${executiveStats.frozenFactories} frozen`}
-          trend="neutral"
-        />
-        <StatsCard
-          title="Total Production"
-          value={`${executiveStats.totalProduction.toLocaleString()} kg`}
-          icon={Package}
-          color="green"
-          change="All factories combined"
-          trend="up"
-        />
-        <StatsCard
-          title="Total Revenue"
-          value={formatCurrency(executiveStats.totalRevenue)}
-          icon={DollarSign}
-          color="purple"
-          change="Gross revenue"
-          trend="up"
-        />
-        <StatsCard
-          title="Net Profit"
-          value={formatCurrency(executiveStats.netProfit)}
-          icon={TrendingUp}
-          color={executiveStats.netProfit >= 0 ? "green" : "red"}
-          change={`${((executiveStats.netProfit / Math.max(executiveStats.totalRevenue, 1)) * 100).toFixed(1)}% margin`}
-          trend={executiveStats.netProfit >= 0 ? "up" : "down"}
-        />
-        <StatsCard
-          title="Active Users"
-          value={executiveStats.totalUsers.toString()}
-          icon={Users}
-          color="orange"
-          change={`${executiveStats.lowStockAlerts} stock alerts`}
-          trend="neutral"
-        />
+        <div className="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs sm:text-sm font-medium text-gray-600">
+                Milk Collected Today
+              </p>
+              <p className="text-lg sm:text-2xl font-bold text-gray-900">
+                {dashboardSummary.totalMilkToday.toLocaleString()}L
+              </p>
+              <p className="text-xs text-gray-500">{selectedDate}</p>
+            </div>
+            <div className="p-2 sm:p-3 bg-blue-100 rounded-lg">
+              <Droplets className="w-4 h-4 sm:w-6 sm:h-6 text-blue-600" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs sm:text-sm font-medium text-gray-600">
+                Cheese Produced Today
+              </p>
+              <p className="text-lg sm:text-2xl font-bold text-gray-900">
+                {dashboardSummary.totalCheeseToday.toLocaleString()}kg
+              </p>
+              <p className="text-xs text-gray-500">{selectedDate}</p>
+            </div>
+            <div className="p-2 sm:p-3 bg-yellow-100 rounded-lg">
+              <Milk className="w-4 h-4 sm:w-6 sm:h-6 text-yellow-600" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs sm:text-sm font-medium text-gray-600">Main Stock Quantity</p>
+              <p className="text-lg sm:text-2xl font-bold text-gray-900">{dashboardSummary.avgConversionRate.toLocaleString()} kg</p>
+              <p className="text-xs text-gray-500 mt-1">
+                Value: RWF {dashboardSummary.mainStockValue.toLocaleString()}
+              </p>
+            </div>
+            <div className="p-2 sm:p-3 bg-green-100 rounded-lg">
+              <Package className="w-4 h-4 sm:w-6 sm:h-6 text-green-600" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs sm:text-sm font-medium text-gray-600">Sales Revenue</p>
+              <p className="text-lg sm:text-2xl font-bold text-gray-900">{formatCurrency(dashboardSummary.totalRevenue)}</p>
+            </div>
+            <div className="p-2 sm:p-3 bg-purple-100 rounded-lg">
+              <TrendingUp className="w-4 h-4 sm:w-6 sm:h-6 text-purple-600" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs sm:text-sm font-medium text-gray-600">Active Factories</p>
+              <p className="text-lg sm:text-2xl font-bold text-gray-900">{dashboardSummary.activeFactories}</p>
+            </div>
+            <div className="p-2 sm:p-3 bg-amber-100 rounded-lg">
+              <Factory className="w-4 h-4 sm:w-6 sm:h-6 text-amber-600" />
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-        {/* Monthly Performance Trends */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-amber-600" />
-            Monthly Performance Trends
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Milk Collection Line Chart */}
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            Milk Collection Per Factory (Last 7 Days)
           </h3>
           <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={monthlyTrends}>
+            <LineChart data={milkCollectionData}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
+              <XAxis dataKey="date" />
               <YAxis />
-              <Tooltip 
-                formatter={(value: any, name: string) => [
-                  name === 'production' ? `${value.toLocaleString()} kg` : formatCurrency(value),
-                  name.charAt(0).toUpperCase() + name.slice(1)
-                ]} 
-              />
-              <Area type="monotone" dataKey="revenue" stackId="1" stroke="#f59e0b" fill="#fbbf24" />
-              <Area type="monotone" dataKey="expenses" stackId="2" stroke="#ef4444" fill="#f87171" />
-            </AreaChart>
+              <Tooltip formatter={(value: any, name: any) => [`${value}L`, name]} />
+              <Legend />
+              {Object.keys(milkCollectionData[0] || {})
+                .filter(key => key !== 'date')
+                .map((factory, index) => (
+                  <Line 
+                    key={factory}
+                    type="monotone" 
+                    dataKey={factory} 
+                    stroke={COLORS[index % COLORS.length]} 
+                    strokeWidth={2}
+                  />
+                ))}
+            </LineChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Factory Performance Distribution */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-            <Factory className="w-5 h-5 text-amber-600" />
-            Factory Performance Distribution
+        {/* Cheese Production Bar Chart */}
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            Cheese Production Per Factory (Today)
           </h3>
           <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={factoryPerformance.slice(0, 6)}
-                cx="50%"
-                cy="50%"
-                outerRadius={100}
-                fill="#8884d8"
-                dataKey="revenue"
-                label={({ name, value }: any) => `${name}: ${formatCurrency(value)}`}
-              >
-                {factoryPerformance.slice(0, 6).map((_, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value: any) => formatCurrency(value)} />
-            </PieChart>
+            <BarChart data={cheeseProductionData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="factory_name" />
+              <YAxis />
+              <Tooltip formatter={(value: any) => [`${value}kg`, 'Production']} />
+              <Bar dataKey="production" fill="#f59e0b" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Conversion Efficiency Chart */}
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            Milk → Cheese Conversion Efficiency
+          </h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={conversionEfficiency}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="factory_name" />
+              <YAxis />
+              <Tooltip formatter={(value: any) => [`${value}%`, 'Efficiency']} />
+              <Bar dataKey="efficiency" fill="#10b981" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Stock Movement Chart */}
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            Main Stock Movement (Last 7 Days)
+          </h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <ComposedChart data={stockMovement}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis 
+                dataKey="date" 
+                tickFormatter={(date) => new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              />
+              <YAxis 
+                label={{ value: 'Cheese Quantity (kg)', angle: -90, position: 'insideLeft' }}
+              />
+              <Tooltip 
+                labelFormatter={(date) => `Date: ${new Date(date).toLocaleDateString()}`}
+                formatter={(value: any, name: string) => {
+                  if (name === 'Net Change') return [`${value > 0 ? '+' : ''}${value} kg`, name];
+                  return [`${value} kg`, name];
+                }}
+              />
+              <Legend />
+              <Bar dataKey="incoming" fill="#06b6d4" name="Cheese In (Production)" />
+              <Bar dataKey="outgoing" fill="#ef4444" name="Cheese Out (Sales)" />
+              <Line type="monotone" dataKey="net_change" stroke="#8b5cf6" strokeWidth={2} name="Net Stock Change" />
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Factory Performance Table & Quick Insights */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Factory Performance - Responsive Design */}
-        <div className="xl:col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="p-4 sm:p-6 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-amber-600" />
-              Factory Performance Overview
-            </h3>
-            <p className="text-sm text-gray-600 mt-1">Real-time performance metrics across all facilities</p>
-          </div>
-          
-          {/* Desktop Table View */}
-          <div className="hidden lg:block overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Factory</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Production</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revenue</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Profit</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Efficiency</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+      {/* Customer Ranking Table */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+        <div className="p-6 border-b border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900">Top Customers (Last 30 Days)</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Customer Name
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Total Orders
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Total Revenue
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Last Order
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {customerRanking.map((customer, index) => (
+                <tr key={index} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center">
+                        <span className="text-sm font-medium text-amber-600">{index + 1}</span>
+                      </div>
+                      <div className="ml-4">
+                        <div className="text-sm font-medium text-gray-900">{customer.customer_name}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {customer.total_orders}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {formatCurrency(customer.total_revenue)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {new Date(customer.last_order_date).toLocaleDateString()}
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {factoryPerformance.map((factory) => (
-                  <tr key={factory.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-4">
-                      <div>
-                        <div className="font-medium text-gray-900">{factory.name}</div>
-                        <div className="text-sm text-gray-500">{factory.code}</div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-sm text-gray-900">
-                      {factory.production.toLocaleString()} kg
-                    </td>
-                    <td className="px-4 py-4 text-sm text-gray-900">
-                      {formatCurrency(factory.revenue)}
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className={`text-sm font-medium ${
-                        factory.profit >= 0 ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        {factory.profit >= 0 ? (
-                          <div className="flex items-center gap-1">
-                            <ArrowUpRight className="w-3 h-3" />
-                            {formatCurrency(factory.profit)}
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1">
-                            <ArrowDownRight className="w-3 h-3" />
-                            {formatCurrency(Math.abs(factory.profit))}
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 bg-gray-200 rounded-full h-2">
-                          <div 
-                            className={`h-2 rounded-full ${
-                              factory.efficiency >= 70 ? 'bg-green-500' :
-                              factory.efficiency >= 40 ? 'bg-yellow-500' : 'bg-red-500'
-                            }`}
-                            style={{ width: `${Math.min(Math.abs(factory.efficiency), 100)}%` }}
-                          ></div>
-                        </div>
-                        <span className="text-sm text-gray-600">{factory.efficiency}%</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4">
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                        factory.status === 'active' 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {factory.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Mobile Card View */}
-          <div className="lg:hidden p-4 space-y-4">
-            {factoryPerformance.map((factory) => (
-              <div key={factory.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <h4 className="font-semibold text-gray-900">{factory.name}</h4>
-                    <p className="text-sm text-gray-500">{factory.code}</p>
-                  </div>
-                  <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                    factory.status === 'active' 
-                      ? 'bg-green-100 text-green-800' 
-                      : 'bg-gray-100 text-gray-800'
-                  }`}>
-                    {factory.status}
-                  </span>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <div>
-                      <p className="text-xs text-gray-500 uppercase tracking-wider">Production</p>
-                      <p className="text-sm font-medium text-gray-900">{factory.production.toLocaleString()} kg</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500 uppercase tracking-wider">Revenue</p>
-                      <p className="text-sm font-medium text-gray-900">{formatCurrency(factory.revenue)}</p>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <div>
-                      <p className="text-xs text-gray-500 uppercase tracking-wider">Profit</p>
-                      <div className={`text-sm font-medium ${
-                        factory.profit >= 0 ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        <div className="flex items-center gap-1">
-                          {factory.profit >= 0 ? (
-                            <ArrowUpRight className="w-3 h-3" />
-                          ) : (
-                            <ArrowDownRight className="w-3 h-3" />
-                          )}
-                          {formatCurrency(Math.abs(factory.profit))}
-                        </div>
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500 uppercase tracking-wider">Efficiency</p>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 bg-gray-200 rounded-full h-1.5">
-                          <div 
-                            className={`h-1.5 rounded-full ${
-                              factory.efficiency >= 70 ? 'bg-green-500' :
-                              factory.efficiency >= 40 ? 'bg-yellow-500' : 'bg-red-500'
-                            }`}
-                            style={{ width: `${Math.min(Math.abs(factory.efficiency), 100)}%` }}
-                          ></div>
-                        </div>
-                        <span className="text-sm text-gray-600 font-medium">{factory.efficiency}%</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-            
-            {factoryPerformance.length === 0 && (
-              <div className="text-center py-8">
-                <Factory className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500">No factory data available</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Performance Insights & Alerts */}
-        <div className="space-y-6">
-          {/* Performance Insights */}
-          <div className="bg-white p-6 rounded-xl border border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <Eye className="w-5 h-5 text-blue-600" />
-              Performance Insights
-            </h3>
-            <div className="space-y-4">
-              {/* Best Performing Factory */}
-              {factoryPerformance.length > 0 && (
-                <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center">
-                      <TrendingUp className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-green-900 mb-1">Top Revenue Generator</h4>
-                      <p className="text-sm text-green-800">
-                        <span className="font-medium">{factoryPerformance[0]?.name}</span> leads with{' '}
-                        <span className="font-semibold">{formatCurrency(factoryPerformance[0]?.revenue || 0)}</span> revenue
-                      </p>
-                      <p className="text-xs text-green-600 mt-1">
-                        {factoryPerformance[0]?.efficiency || 0}% efficiency • {factoryPerformance[0]?.production.toLocaleString() || 0}kg produced
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Performance Summary */}
-              {factoryPerformance.length > 0 && (
-                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center">
-                      <BarChart3 className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-blue-900 mb-1">System Performance</h4>
-                      <div className="space-y-1">
-                        <p className="text-sm text-blue-800">
-                          <span className="font-medium">
-                            {factoryPerformance.filter(f => f.profit > 0).length}/{factoryPerformance.length}
-                          </span> factories profitable
-                        </p>
-                        <p className="text-sm text-blue-800">
-                          Average efficiency: <span className="font-medium">
-                            {factoryPerformance.length > 0 
-                              ? Math.round(factoryPerformance.reduce((sum, f) => sum + f.efficiency, 0) / factoryPerformance.length)
-                              : 0}%
-                          </span>
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Improvement Opportunity */}
-              {factoryPerformance.length > 0 && (
-                (() => {
-                  const underperforming = factoryPerformance.filter(f => f.efficiency < 50 || f.profit < 0)
-                  return underperforming.length > 0 ? (
-                    <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
-                      <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center">
-                          <AlertTriangle className="w-5 h-5 text-white" />
-                        </div>
-                        <div className="flex-1">
-                          <h4 className="font-semibold text-orange-900 mb-1">Needs Attention</h4>
-                          <p className="text-sm text-orange-800">
-                            <span className="font-medium">{underperforming.length}</span> factories need improvement
-                          </p>
-                          <p className="text-xs text-orange-600 mt-1">
-                            Focus on: {underperforming[0]?.name} • {underperforming[0]?.efficiency}% efficiency
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
-                      <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center">
-                          <TrendingUp className="w-5 h-5 text-white" />
-                        </div>
-                        <div className="flex-1">
-                          <h4 className="font-semibold text-emerald-900 mb-1">Excellent Performance</h4>
-                          <p className="text-sm text-emerald-800">
-                            All factories operating efficiently
-                          </p>
-                          <p className="text-xs text-emerald-600 mt-1">
-                            Continue current strategies for optimal results
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })()
-              )}
-
-              {factoryPerformance.length === 0 && (
-                <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg text-center">
-                  <p className="text-sm text-gray-600">No factory data available for analysis</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* System Alerts */}
-          <div className="bg-white p-6 rounded-xl border border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-red-600" />
-              System Alerts
-            </h3>
-            <div className="space-y-3">
-              {executiveStats.lowStockAlerts > 0 && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-red-600" />
-                    <p className="text-sm font-medium text-red-800">
-                      {executiveStats.lowStockAlerts} Low Stock Items
-                    </p>
-                  </div>
-                  <p className="text-xs text-red-600 mt-1">
-                    Items below reorder level across all factories
-                  </p>
-                </div>
-              )}
-              
-              {executiveStats.frozenFactories > 0 && (
-                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <Factory className="w-4 h-4 text-yellow-600" />
-                    <p className="text-sm font-medium text-yellow-800">
-                      {executiveStats.frozenFactories} Frozen Factories
-                    </p>
-                  </div>
-                  <p className="text-xs text-yellow-600 mt-1">
-                    Factories currently not operational
-                  </p>
-                </div>
-              )}
-
-              {executiveStats.pendingReports > 0 && (
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-blue-600" />
-                    <p className="text-sm font-medium text-blue-800">
-                      {executiveStats.pendingReports} Pending Reports
-                    </p>
-                  </div>
-                  <p className="text-xs text-blue-600 mt-1">
-                    Daily reports awaiting review
-                  </p>
-                </div>
-              )}
-              
-              {executiveStats.lowStockAlerts === 0 && executiveStats.frozenFactories === 0 && executiveStats.pendingReports === 0 && (
-                <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-center">
-                  <p className="text-sm text-green-800 font-medium">All Systems Operational</p>
-                  <p className="text-xs text-green-600">No alerts at this time</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-interface StatsCardProps {
-  title: string
-  value: string
-  icon: any
-  color: string
-  change: string
-  trend?: 'up' | 'down' | 'neutral'
-}
-
-function StatsCard({ title, value, icon: Icon, color, change, trend = 'neutral' }: StatsCardProps) {
-  const colorClasses = {
-    blue: 'bg-blue-500',
-    green: 'bg-green-500',
-    purple: 'bg-purple-500',
-    orange: 'bg-orange-500',
-    red: 'bg-red-500',
-  }
-
-  const TrendIcon = trend === 'up' ? ArrowUpRight : trend === 'down' ? ArrowDownRight : null
-
-  return (
-    <div className="bg-white p-4 sm:p-6 rounded-xl border border-gray-200">
-      <div className="flex items-center justify-between">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs sm:text-sm text-gray-600 truncate">{title}</p>
-          <p className="text-lg sm:text-2xl font-bold mt-1 sm:mt-2 text-gray-900">{value}</p>
-          <div className="flex items-center gap-1 mt-1">
-            {TrendIcon && (
-              <TrendIcon className={`w-3 h-3 ${
-                trend === 'up' ? 'text-green-600' : trend === 'down' ? 'text-red-600' : 'text-gray-400'
-              }`} />
-            )}
-            <p className="text-xs text-gray-500 truncate">{change}</p>
-          </div>
-        </div>
-        <div className={`p-2 sm:p-3 rounded-lg ${colorClasses[color as keyof typeof colorClasses]} flex-shrink-0 ml-2`}>
-          <Icon className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

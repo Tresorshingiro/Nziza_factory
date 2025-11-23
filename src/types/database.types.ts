@@ -27,8 +27,14 @@ export type ExpenseStatus = 'pending' | 'approved' | 'rejected' | 'paid'
 // Stock Type
 export type StockType = 'raw_milk' | 'finished_goods' | 'byproduct'
 
-// Cheese Type
-export type CheeseType = 'gouda' | 'cheddar' | 'mozzarella' | 'other'
+// Cheese Type - Now allows any string (no enum constraint)
+export type CheeseType = string
+
+// Main Stock Movement Type
+export type MainStockMovementType = 'in' | 'out' | 'adjustment' | 'transfer_from_factory' | 'distribution'
+
+// Transfer Status
+export type TransferStatus = 'pending' | 'completed' | 'failed'
 
 export interface Database {
   public: {
@@ -300,7 +306,7 @@ export interface Database {
           factory_id: string
           batch_number: string
           production_date: string
-          cheese_type: CheeseType
+          cheese_type: string
           milk_used_liters: number
           cheese_produced_kg: number
           conversion_ratio: number
@@ -310,6 +316,9 @@ export interface Database {
           notes: string | null
           supervisor_id: string
           status: 'in_progress' | 'completed' | 'failed'
+          transfer_status: 'pending' | 'transferred'
+          transfer_date: string | null
+          transferred_by: string | null
           created_at: string
           updated_at: string
         }
@@ -318,7 +327,7 @@ export interface Database {
           factory_id: string
           batch_number: string
           production_date: string
-          cheese_type: CheeseType
+          cheese_type: string
           milk_used_liters: number
           cheese_produced_kg: number
           conversion_ratio: number
@@ -328,6 +337,9 @@ export interface Database {
           notes?: string | null
           supervisor_id: string
           status?: 'in_progress' | 'completed' | 'failed'
+          transfer_status?: 'pending' | 'transferred'
+          transfer_date?: string | null
+          transferred_by?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -336,7 +348,7 @@ export interface Database {
           factory_id?: string
           batch_number?: string
           production_date?: string
-          cheese_type?: CheeseType
+          cheese_type?: string
           milk_used_liters?: number
           cheese_produced_kg?: number
           conversion_ratio?: number
@@ -346,6 +358,9 @@ export interface Database {
           notes?: string | null
           supervisor_id?: string
           status?: 'in_progress' | 'completed' | 'failed'
+          transfer_status?: 'pending' | 'transferred'
+          transfer_date?: string | null
+          transferred_by?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -1257,6 +1272,187 @@ export interface Database {
           created_at?: string
         }
       }
+      
+      // Main Stock System
+      main_stock: {
+        Row: {
+          id: string
+          cheese_type: CheeseType
+          total_quantity: number
+          unit: string
+          average_unit_cost: number
+          total_value: number
+          location: string
+          reorder_level: number
+          last_restocked: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          cheese_type: CheeseType
+          total_quantity?: number
+          unit?: string
+          average_unit_cost?: number
+          total_value?: number
+          location?: string
+          reorder_level?: number
+          last_restocked?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          cheese_type?: CheeseType
+          total_quantity?: number
+          unit?: string
+          average_unit_cost?: number
+          total_value?: number
+          location?: string
+          reorder_level?: number
+          last_restocked?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      
+      main_stock_movements: {
+        Row: {
+          id: string
+          main_stock_id: string
+          movement_type: MainStockMovementType
+          quantity: number
+          unit_cost: number
+          total_value: number
+          source_factory_id: string | null
+          source_batch_id: string | null
+          destination: string | null
+          reason: string
+          notes: string | null
+          processed_by: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          main_stock_id: string
+          movement_type: MainStockMovementType
+          quantity: number
+          unit_cost?: number
+          total_value?: number
+          source_factory_id?: string | null
+          source_batch_id?: string | null
+          destination?: string | null
+          reason: string
+          notes?: string | null
+          processed_by: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          main_stock_id?: string
+          movement_type?: MainStockMovementType
+          quantity?: number
+          unit_cost?: number
+          total_value?: number
+          source_factory_id?: string | null
+          source_batch_id?: string | null
+          destination?: string | null
+          reason?: string
+          notes?: string | null
+          processed_by?: string
+          created_at?: string
+        }
+      }
+      
+      main_stock_transfers: {
+        Row: {
+          id: string
+          cheese_type: CheeseType
+          quantity: number
+          unit_cost: number
+          source_factory_id: string | null
+          source_batch_id: string | null
+          reason: string | null
+          notes: string | null
+          processed_by: string
+          status: TransferStatus
+          created_at: string
+          processed_at: string | null
+        }
+        Insert: {
+          id?: string
+          cheese_type: CheeseType
+          quantity: number
+          unit_cost?: number
+          source_factory_id?: string | null
+          source_batch_id?: string | null
+          reason?: string | null
+          notes?: string | null
+          processed_by: string
+          status?: TransferStatus
+          created_at?: string
+          processed_at?: string | null
+        }
+        Update: {
+          id?: string
+          cheese_type?: CheeseType
+          quantity?: number
+          unit_cost?: number
+          source_factory_id?: string | null
+          source_batch_id?: string | null
+          reason?: string | null
+          notes?: string | null
+          processed_by?: string
+          status?: TransferStatus
+          created_at?: string
+          processed_at?: string | null
+        }
+      }
+      
+      factory_production_summary: {
+        Row: {
+          id: string
+          factory_id: string
+          production_date: string
+          cheese_type: CheeseType
+          total_production_kg: number
+          total_batches: number
+          transferred_to_main: number
+          pending_transfer: number
+          average_quality_score: number | null
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          factory_id: string
+          production_date: string
+          cheese_type: CheeseType
+          total_production_kg?: number
+          total_batches?: number
+          transferred_to_main?: number
+          pending_transfer?: number
+          average_quality_score?: number | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          factory_id?: string
+          production_date?: string
+          cheese_type?: CheeseType
+          total_production_kg?: number
+          total_batches?: number
+          transferred_to_main?: number
+          pending_transfer?: number
+          average_quality_score?: number | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
     }
     Views: {
       [_ in never]: never
@@ -1273,6 +1469,8 @@ export interface Database {
       expense_status: ExpenseStatus
       stock_type: StockType
       cheese_type: CheeseType
+      main_stock_movement_type: MainStockMovementType
+      transfer_status: TransferStatus
     }
   }
 }

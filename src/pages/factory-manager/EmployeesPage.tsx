@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { 
   Users, 
   Plus, 
@@ -6,7 +6,9 @@ import {
   User, 
   Eye, 
   Edit, 
-  Download
+  Download,
+  MoreVertical,
+  Trash2
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../stores/authStore'
@@ -34,6 +36,9 @@ export default function EmployeesPage() {
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  
+  // Dropdown state for action menus
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
 
   // Form state for adding new employee
   const [newEmployee, setNewEmployee] = useState({
@@ -84,7 +89,20 @@ export default function EmployeesPage() {
       fetchEmployees()
       generateEmployeeCode()
     }
-  }, [user])
+  }, [user?.factory_id])
+
+  // Click outside to close dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element
+      if (!target.closest('.dropdown-container')) {
+        setOpenDropdown(null)
+      }
+    }
+    
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const generateEmployeeCode = () => {
     const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0')
@@ -304,6 +322,33 @@ export default function EmployeesPage() {
     } catch (error) {
       console.error('Unexpected error updating employee:', error)
       toast.error('Failed to update employee. Please try again.', { id: loadingToast })
+    }
+  }
+
+  const handleDeleteEmployee = async (employeeId: string) => {
+    if (!window.confirm('Are you sure you want to delete this employee? This action cannot be undone.')) {
+      return
+    }
+
+    const loadingToast = toast.loading('Deleting employee...')
+    
+    try {
+      const { error } = await supabase
+        .from('employees')
+        .delete()
+        .eq('id', employeeId)
+
+      if (error) {
+        console.error('Supabase error deleting employee:', error)
+        toast.error(`Failed to delete employee: ${error.message}`, { id: loadingToast })
+        return
+      }
+
+      toast.success('Employee deleted successfully!', { id: loadingToast })
+      fetchEmployees()
+    } catch (error) {
+      console.error('Unexpected error deleting employee:', error)
+      toast.error('Failed to delete employee. Please try again.', { id: loadingToast })
     }
   }
 
@@ -564,22 +609,52 @@ export default function EmployeesPage() {
                     {getStatusBadge(employee.is_active)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex gap-2">
+                    <div className="relative dropdown-container">
                       <button
-                        onClick={() => {
-                          setSelectedEmployee(employee)
-                          setShowDetailsModal(true)
-                        }}
-                        className="text-amber-600 hover:text-amber-900"
+                        onClick={() => setOpenDropdown(openDropdown === employee.id ? null : employee.id)}
+                        className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
                       >
-                        <Eye className="h-4 w-4" />
+                        <MoreVertical className="w-4 h-4 text-gray-600" />
                       </button>
-                      <button
-                        onClick={() => openEditModal(employee)}
-                        className="text-blue-600 hover:text-blue-900"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </button>
+                      
+                      {openDropdown === employee.id && (
+                        <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                          <div className="py-1">
+                            <button
+                              onClick={() => {
+                                setSelectedEmployee(employee)
+                                setShowDetailsModal(true)
+                                setOpenDropdown(null)
+                              }}
+                              className="flex items-center gap-3 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                            >
+                              <Eye className="w-4 h-4" />
+                              View Details
+                            </button>
+                            <button
+                              onClick={() => {
+                                openEditModal(employee)
+                                setOpenDropdown(null)
+                              }}
+                              className="flex items-center gap-3 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                            >
+                              <Edit className="w-4 h-4" />
+                              Edit
+                            </button>
+                            <hr className="my-1 border-gray-100" />
+                            <button
+                              onClick={() => {
+                                handleDeleteEmployee(employee.id)
+                                setOpenDropdown(null)
+                              }}
+                              className="flex items-center gap-3 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </td>
                 </tr>

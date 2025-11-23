@@ -26,8 +26,9 @@ export default function SeniorManagerSidebar({ isOpen, onClose }: SeniorManagerS
     { name: 'Factory Managers', path: '/create-factory-manager', icon: UserPlus },
     { name: 'Payroll Management', path: '/payroll', icon: DollarSign },
     { name: 'Reports', path: '/reports', icon: BarChart3 },
+    { name: 'Customers', path: '/customers', icon: Users },
+    { name: 'Sales & Orders', path: '/sales', icon: BarChart3 },
     { name: 'Suppliers', path: '/suppliers', icon: Building2 },
-    { name: 'Sales', path: '/sales', icon: BarChart3 },
     { name: 'Expenses', path: '/expenses', icon: BarChart3 },
     { name: 'Inventories', path: '/inventories', icon: Package },
   ]

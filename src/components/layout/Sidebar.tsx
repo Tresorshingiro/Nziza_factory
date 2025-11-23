@@ -31,7 +31,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, roles: ['main_boss', 'senior_manager', 'factory_manager'] },
     
     // Main Boss Executive Pages
-    { name: 'Analytics & KPIs', path: '/analytics', icon: BarChart3, roles: ['main_boss'] },
+
     { name: 'Audit Center', path: '/audit-center', icon: Shield, roles: ['main_boss'] },
     { name: 'Financial Overview', path: '/financial-overview', icon: TrendingUp, roles: ['main_boss'] },
     
@@ -45,11 +45,13 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     { name: 'Milk Collection', path: '/milk-collection', icon: Milk, roles: ['senior_manager', 'factory_manager'] },
     { name: 'Production', path: '/production', icon: PackageOpen, roles: ['senior_manager', 'factory_manager'] },
     { name: 'Inventory', path: '/inventory/stock', icon: PackageOpen, roles: ['senior_manager', 'factory_manager'] },
-    { name: 'Customers', path: '/customers', icon: Users, roles: ['senior_manager', 'factory_manager'] },
-    { name: 'Sales & Orders', path: '/sales', icon: ShoppingCart, roles: ['senior_manager', 'factory_manager'] },
     { name: 'Expenses', path: '/expenses', icon: DollarSign, roles: ['senior_manager', 'factory_manager'] },
     { name: 'Suppliers', path: '/suppliers', icon: Truck, roles: ['senior_manager', 'factory_manager'] },
     { name: 'HR & Employees', path: '/hr/employees', icon: Briefcase, roles: ['senior_manager', 'factory_manager'] },
+    
+    // Senior Manager Only Pages
+    { name: 'Customers', path: '/customers', icon: Users, roles: ['senior_manager', 'main_boss'] },
+    { name: 'Sales & Orders', path: '/sales', icon: ShoppingCart, roles: ['senior_manager', 'main_boss'] },
   ]
 
   const visibleItems = navItems.filter(item => item.roles.includes(user!.role))

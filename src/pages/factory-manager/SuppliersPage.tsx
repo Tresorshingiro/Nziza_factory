@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../stores/authStore'
 import { Button } from '../../components/ui/button'
@@ -16,8 +16,10 @@ import {
   Users,
   Truck,
   Building,
-  X
+  X,
+  MoreVertical
 } from 'lucide-react'
+import toast, { Toaster } from 'react-hot-toast'
 
 // Types
 interface Supplier {
@@ -79,6 +81,9 @@ export default function SuppliersPage() {
   
   const [isViewModalOpen, setIsViewModalOpen] = useState(false)
   const [viewingSupplier, setViewingSupplier] = useState<Supplier | null>(null)
+  
+  // Dropdown state for action menus
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
 
   // Analytics data
   const [analytics, setAnalytics] = useState({
@@ -112,6 +117,19 @@ export default function SuppliersPage() {
   useEffect(() => {
     calculateAnalytics()
   }, [suppliers])
+
+  // Click outside to close dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element
+      if (!target.closest('.dropdown-container')) {
+        setOpenDropdown(null)
+      }
+    }
+    
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const loadSuppliers = async () => {
     try {
@@ -201,6 +219,9 @@ export default function SuppliersPage() {
   }
 
   const handleToggleStatus = async (supplierId: string, currentStatus: boolean) => {
+    const action = currentStatus ? 'Deactivating' : 'Activating'
+    const loadingToast = toast.loading(`${action} supplier...`)
+    
     try {
       const { error } = await supabase
         .from('suppliers')
@@ -211,27 +232,68 @@ export default function SuppliersPage() {
         .eq('id', supplierId)
 
       if (error) throw error
+      
+      toast.success(`Supplier ${currentStatus ? 'deactivated' : 'activated'} successfully!`, { id: loadingToast })
       await loadSuppliers()
     } catch (error) {
       console.error('Error updating supplier status:', error)
-      alert('Error updating supplier status. Please try again.')
+      toast.error('Error updating supplier status. Please try again.', { id: loadingToast })
     }
   }
 
   const handleDelete = async (supplierId: string) => {
-    if (!confirm('Are you sure you want to delete this supplier? This action cannot be undone.')) return
-
     try {
+      // First check if supplier is referenced by any expenses
+      const { data: expenseCount, error: expenseError } = await supabase
+        .from('expenses')
+        .select('id', { count: 'exact', head: true })
+        .eq('supplier_id', supplierId)
+
+      if (expenseError) {
+        console.error('Error checking expenses:', expenseError)
+        toast.error('Error checking supplier dependencies. Please try again.')
+        return
+      }
+
+      // If supplier has expenses, ask user if they want to deactivate instead
+      if (expenseCount && (expenseCount as any).count > 0) {
+        const deactivateInstead = confirm(
+          `This supplier cannot be deleted because it has ${(expenseCount as any).count} associated expense(s). Would you like to deactivate it instead?`
+        )
+        
+        if (deactivateInstead) {
+          const loadingToast = toast.loading('Deactivating supplier...')
+          await handleToggleStatus(supplierId, true) // Deactivate (set to false)
+          toast.success('Supplier deactivated successfully!', { id: loadingToast })
+        }
+        return
+      }
+
+      // If no dependencies, proceed with deletion confirmation
+      if (!confirm('Are you sure you want to delete this supplier? This action cannot be undone.')) return
+
+      const loadingToast = toast.loading('Deleting supplier...')
       const { error } = await supabase
         .from('suppliers')
         .delete()
         .eq('id', supplierId)
 
-      if (error) throw error
+      if (error) {
+        console.error('Error deleting supplier:', error)
+        // If still getting 409, it might be from other tables not checked
+        if (error.code === '23503' || error.message.includes('violates foreign key')) {
+          toast.error('Cannot delete supplier: it is still referenced by other records. Consider deactivating it instead.', { id: loadingToast })
+        } else {
+          toast.error(`Failed to delete supplier: ${error.message}`, { id: loadingToast })
+        }
+        return
+      }
+      
+      toast.success('Supplier deleted successfully!', { id: loadingToast })
       await loadSuppliers()
     } catch (error) {
       console.error('Error deleting supplier:', error)
-      alert('Error deleting supplier. Please try again.')
+      toast.error('Unexpected error occurred while deleting supplier. Please try again.')
     }
   }
 
@@ -458,42 +520,67 @@ export default function SuppliersPage() {
                     </Badge>
                   </td>
                   <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <div className="flex space-x-2">
+                    <div className="relative dropdown-container">
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => openViewModal(supplier)}
+                        onClick={() => setOpenDropdown(openDropdown === supplier.id ? null : supplier.id)}
                         className="p-2"
                       >
-                        <Eye className="w-4 h-4" />
+                        <MoreVertical className="w-4 h-4" />
                       </Button>
                       
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openEditModal(supplier)}
-                        className="p-2"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleToggleStatus(supplier.id, supplier.is_active)}
-                        className={`p-2 ${supplier.is_active ? 'text-red-600 hover:text-red-700' : 'text-green-600 hover:text-green-700'}`}
-                      >
-                        {supplier.is_active ? '🚫' : '✅'}
-                      </Button>
-                      
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleDelete(supplier.id)}
-                        className="p-2 text-red-600 hover:text-red-700"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      {openDropdown === supplier.id && (
+                        <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                          <div className="py-1">
+                            <button
+                              onClick={() => {
+                                openViewModal(supplier)
+                                setOpenDropdown(null)
+                              }}
+                              className="flex items-center gap-3 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                            >
+                              <Eye className="w-4 h-4" />
+                              View Details
+                            </button>
+                            <button
+                              onClick={() => {
+                                openEditModal(supplier)
+                                setOpenDropdown(null)
+                              }}
+                              className="flex items-center gap-3 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                            >
+                              <Edit className="w-4 h-4" />
+                              Edit
+                            </button>
+                            <hr className="my-1 border-gray-100" />
+                            <button
+                              onClick={() => {
+                                handleToggleStatus(supplier.id, supplier.is_active)
+                                setOpenDropdown(null)
+                              }}
+                              className={`flex items-center gap-3 w-full px-4 py-2 text-sm hover:bg-gray-50 ${
+                                supplier.is_active ? 'text-red-600' : 'text-green-600'
+                              }`}
+                            >
+                              <span className="w-4 h-4 flex items-center justify-center">
+                                {supplier.is_active ? '🚫' : '✅'}
+                              </span>
+                              {supplier.is_active ? 'Deactivate' : 'Activate'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                handleDelete(supplier.id)
+                                setOpenDropdown(null)
+                              }}
+                              className="flex items-center gap-3 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -773,6 +860,7 @@ export default function SuppliersPage() {
           </div>
         </div>
       )}
+      <Toaster />
     </div>
   )
 }

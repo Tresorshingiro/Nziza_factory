@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { supabase } from './lib/supabase'
 
 // Auth pages
@@ -19,7 +19,7 @@ import UsersPage from './pages/main-boss/UsersPage'
 import MainBossReportsPage from './pages/main-boss/ReportsPage'
 import AuditCenterPage from './pages/main-boss/AuditCenterPage'
 import FinancialOverviewPage from './pages/main-boss/FinancialOverviewPage'
-import AnalyticsKPIPage from './pages/main-boss/AnalyticsKPIPage'
+
 
 // Management pages - Factory Manager
 import MilkCollectionPage from './pages/factory-manager/MilkCollectionPage'
@@ -28,7 +28,7 @@ import StockPage from './pages/factory-manager/StockPage'
 import EmployeesPage from './pages/factory-manager/EmployeesPage'
 import FarmersPage from './pages/factory-manager/FarmersPage'
 import ReportsPage from './pages/factory-manager/ReportsPage'
-import CustomersPage from './pages/factory-manager/CustomersPage'
+import CustomersPage from './pages/senior-manager/CustomersPage'
 import SalesPage from './pages/factory-manager/SalesPage'
 import ExpensesPage from './pages/factory-manager/ExpensesPage'
 import SuppliersPage from './pages/factory-manager/SuppliersPage'
@@ -50,10 +50,11 @@ import ProtectedRoute from './components/auth/ProtectedRoute'
 
 function App() {
   const { user, setUser, setSession, loading, setLoading } = useAuthStore()
+  const isInitializingRef = useRef(true)
 
   useEffect(() => {
     let mounted = true
-    let isInitializing = true
+    isInitializingRef.current = true
 
     console.log('App useEffect running - initialization started')
 
@@ -99,9 +100,14 @@ function App() {
           setUser(null)
         }
         
-        setLoading(false)
-        isInitializing = false
-        console.log('Auth initialization complete')
+        // Add a small delay before marking initialization complete
+        setTimeout(() => {
+          if (mounted) {
+            setLoading(false)
+            isInitializingRef.current = false
+            console.log('Auth initialization complete')
+          }
+        }, 100)
         
       } catch (error: any) {
         console.log('Auth initialization error:', error)
@@ -109,7 +115,7 @@ function App() {
           setUser(null)
           setSession(null)
           setLoading(false)
-          isInitializing = false
+          isInitializingRef.current = false
         }
       }
     }
@@ -118,25 +124,39 @@ function App() {
 
     // Listen for auth changes (skip events during initialization)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!mounted || isInitializing) return
+      if (!mounted) return
+      
+      // Skip processing during initialization to prevent loops
+      if (isInitializingRef.current) {
+        console.log('Auth state change ignored during initialization:', event)
+        return
+      }
       
       console.log('Auth state change:', event)
       
       if (event === 'SIGNED_IN' && session?.user) {
-        const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', session.user.id)
-          .single()
-          
-        if (mounted) {
-          if (userData) {
-            setUser(userData)
-            setSession(session)
-          } else if (userError) {
-            console.log('User not found in users table. Please check the demo users setup.')
-            console.log('Auth User ID:', session.user.id)
-            console.log('Auth User Email:', session.user.email)
+        try {
+          const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', session.user.id)
+            .single()
+            
+          if (mounted) {
+            if (userData && !userError) {
+              setUser(userData)
+              setSession(session)
+            } else {
+              console.log('User not found in users table:', userError)
+              console.log('Auth User ID:', session.user.id)
+              console.log('Auth User Email:', session.user.email)
+              setUser(null)
+              setSession(null)
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching user data during auth state change:', error)
+          if (mounted) {
             setUser(null)
             setSession(null)
           }
@@ -146,6 +166,11 @@ function App() {
           setUser(null)
           setSession(null)
         }
+      } else if (event === 'TOKEN_REFRESHED') {
+        // Don't refetch user data on token refresh, just update session
+        if (mounted && session) {
+          setSession(session)
+        }
       }
     })
 
@@ -154,7 +179,7 @@ function App() {
       mounted = false
       subscription.unsubscribe()
     }
-  }, []) // Empty dependency array to prevent re-runs
+  }, [setUser, setSession, setLoading]) // Add dependencies to prevent stale closures
 
   if (loading) {
     return (
@@ -186,7 +211,7 @@ function App() {
         {/* Management routes - Role-based access */}
         
         {/* Main Boss routes */}
-        <Route path="/analytics" element={<ProtectedRoute roles={['main_boss']}><AnalyticsKPIPage /></ProtectedRoute>} />
+
         <Route path="/audit-center" element={<ProtectedRoute roles={['main_boss']}><AuditCenterPage /></ProtectedRoute>} />
         <Route path="/financial-overview" element={<ProtectedRoute roles={['main_boss']}><FinancialOverviewPage /></ProtectedRoute>} />
         <Route path="/factories" element={<ProtectedRoute roles={['main_boss', 'senior_manager']}><FactoriesPage /></ProtectedRoute>} />
@@ -204,8 +229,11 @@ function App() {
           {user?.role === 'main_boss' ? <MainBossReportsPage /> : 
            user?.role === 'senior_manager' ? <SeniorReportsPage /> : <ReportsPage />}
         </ProtectedRoute>} />
-        <Route path="/sales" element={<ProtectedRoute roles={['factory_manager', 'senior_manager', 'main_boss']}>
-          {user?.role === 'senior_manager' ? <SeniorSalesPage /> : <SalesPage />}
+        <Route path="/sales" element={<ProtectedRoute roles={['senior_manager', 'main_boss']}>
+          <SeniorSalesPage />
+        </ProtectedRoute>} />
+        <Route path="/customers" element={<ProtectedRoute roles={['senior_manager', 'main_boss']}>
+          <CustomersPage />
         </ProtectedRoute>} />
         <Route path="/expenses" element={<ProtectedRoute roles={['factory_manager', 'senior_manager', 'main_boss']}>
           {user?.role === 'senior_manager' ? <SeniorExpensesPage /> : <ExpensesPage />}
@@ -216,9 +244,6 @@ function App() {
         <Route path="/inventories" element={<ProtectedRoute roles={['senior_manager', 'main_boss']}>
           <SeniorInventoriesPage />
         </ProtectedRoute>} />
-        
-        {/* Factory Manager routes */}
-        <Route path="/customers" element={<ProtectedRoute roles={['factory_manager', 'main_boss']}><CustomersPage /></ProtectedRoute>} />
         
         {/* Senior Manager exclusive routes */}
         <Route path="/create-factory-manager" element={<ProtectedRoute roles={['senior_manager', 'main_boss']}><CreateFactoryManagerPage /></ProtectedRoute>} />

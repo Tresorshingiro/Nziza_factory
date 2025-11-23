@@ -23,7 +23,6 @@
     "noImplicitReturns": false,
     "noUncheckedIndexedAccess": false,
     "exactOptionalPropertyTypes": false,
-    "suppressImplicitAnyIndexErrors": true,
 
     /* Path mapping */
     "baseUrl": ".",

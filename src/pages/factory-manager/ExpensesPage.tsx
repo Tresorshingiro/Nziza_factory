@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../stores/authStore'
 import { Button } from '../../components/ui/button'
@@ -17,8 +17,10 @@ import {
   Receipt,
   DollarSign,
   AlertCircle,
-  FileText
+  FileText,
+  MoreVertical
 } from 'lucide-react'
+import toast, { Toaster } from 'react-hot-toast'
 
 // Types
 type ExpenseStatus = 'pending' | 'approved' | 'rejected' | 'paid'
@@ -102,6 +104,9 @@ export default function ExpensesPage() {
   
   const [isViewModalOpen, setIsViewModalOpen] = useState(false)
   const [viewingExpense, setViewingExpense] = useState<Expense | null>(null)
+  
+  // Dropdown state for action menus
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
 
   // Analytics data
   const [analytics, setAnalytics] = useState({
@@ -137,6 +142,19 @@ export default function ExpensesPage() {
   useEffect(() => {
     calculateAnalytics()
   }, [expenses])
+
+  // Click outside to close dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element
+      if (!target.closest('.dropdown-container')) {
+        setOpenDropdown(null)
+      }
+    }
+    
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const loadExpenses = async () => {
     try {
@@ -341,17 +359,24 @@ export default function ExpensesPage() {
   const handleDelete = async (expenseId: string) => {
     if (!confirm('Are you sure you want to delete this expense?')) return
 
+    const loadingToast = toast.loading('Deleting expense...')
     try {
       const { error } = await supabase
         .from('expenses')
         .delete()
         .eq('id', expenseId)
 
-      if (error) throw error
+      if (error) {
+        console.error('Error deleting expense:', error)
+        toast.error(`Failed to delete expense: ${error.message}`, { id: loadingToast })
+        return
+      }
+      
+      toast.success('Expense deleted successfully!', { id: loadingToast })
       await loadExpenses()
     } catch (error) {
       console.error('Error deleting expense:', error)
-      alert('Error deleting expense. Please try again.')
+      toast.error('Unexpected error occurred while deleting expense. Please try again.', { id: loadingToast })
     }
   }
 
@@ -585,65 +610,96 @@ export default function ExpensesPage() {
                     </Badge>
                   </td>
                   <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <div className="flex space-x-2">
+                    <div className="relative dropdown-container">
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => openViewModal(expense)}
+                        onClick={() => setOpenDropdown(openDropdown === expense.id ? null : expense.id)}
                         className="p-2"
                       >
-                        <Eye className="w-4 h-4" />
+                        <MoreVertical className="w-4 h-4" />
                       </Button>
                       
-                      {expense.status === 'pending' && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => openEditModal(expense)}
-                            className="p-2"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleApprove(expense.id)}
-                            className="p-2 text-green-600 hover:text-green-700"
-                          >
-                            <Check className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleReject(expense.id)}
-                            className="p-2 text-red-600 hover:text-red-700"
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
-                        </>
-                      )}
-                      
-                      {expense.status === 'approved' && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleMarkAsPaid(expense.id)}
-                          className="p-2 text-blue-600 hover:text-blue-700"
-                        >
-                          <Receipt className="w-4 h-4" />
-                        </Button>
-                      )}
-                      
-                      {expense.status !== 'paid' && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleDelete(expense.id)}
-                          className="p-2 text-red-600 hover:text-red-700"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                      {openDropdown === expense.id && (
+                        <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                          <div className="py-1">
+                            <button
+                              onClick={() => {
+                                openViewModal(expense)
+                                setOpenDropdown(null)
+                              }}
+                              className="flex items-center gap-3 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                            >
+                              <Eye className="w-4 h-4" />
+                              View Details
+                            </button>
+                            
+                            {expense.status === 'pending' && (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    openEditModal(expense)
+                                    setOpenDropdown(null)
+                                  }}
+                                  className="flex items-center gap-3 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                  Edit
+                                </button>
+                                <hr className="my-1 border-gray-100" />
+                                <button
+                                  onClick={() => {
+                                    handleApprove(expense.id)
+                                    setOpenDropdown(null)
+                                  }}
+                                  className="flex items-center gap-3 w-full px-4 py-2 text-sm text-green-600 hover:bg-green-50"
+                                >
+                                  <Check className="w-4 h-4" />
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    handleReject(expense.id)
+                                    setOpenDropdown(null)
+                                  }}
+                                  className="flex items-center gap-3 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                                >
+                                  <X className="w-4 h-4" />
+                                  Reject
+                                </button>
+                              </>
+                            )}
+                            
+                            {expense.status === 'approved' && (
+                              <button
+                                onClick={() => {
+                                  handleMarkAsPaid(expense.id)
+                                  setOpenDropdown(null)
+                                }}
+                                className="flex items-center gap-3 w-full px-4 py-2 text-sm text-blue-600 hover:bg-blue-50"
+                              >
+                                <DollarSign className="w-4 h-4" />
+                                Mark as Paid
+                              </button>
+                            )}
+                            
+                            {expense.status !== 'paid' && (
+                              <>
+                                <hr className="my-1 border-gray-100" />
+                                <button
+                                  onClick={() => {
+                                    handleDelete(expense.id)
+                                    setOpenDropdown(null)
+                                  }}
+                                  className="flex items-center gap-3 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                  Delete
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
                       )}
                     </div>
                   </td>
@@ -1005,6 +1061,7 @@ export default function ExpensesPage() {
           </div>
         </div>
       )}
+      <Toaster />
     </div>
   )
 }

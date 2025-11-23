@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Search, Plus, Building2, Phone, Mail, MapPin, Edit, Trash2, Eye } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Search, Plus, Building2, Phone, Mail, MapPin, Edit, Trash2, Eye, MoreVertical } from 'lucide-react'
 import FactorySelector from '../../components/ui/FactorySelector'
 import { supabase } from '../../lib/supabase'
 import toast from 'react-hot-toast'
@@ -23,6 +23,8 @@ export default function SeniorManagerSuppliersPage() {
   const [editingSupplier, setEditingSupplier] = useState<SupplierWithFactory | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   const [newSupplier, setNewSupplier] = useState({
     name: '',
@@ -52,6 +54,19 @@ export default function SeniorManagerSuppliersPage() {
   useEffect(() => {
     fetchSuppliers()
   }, [selectedFactory])
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setOpenDropdown(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [])
 
   const fetchSuppliers = async () => {
     try {
@@ -425,28 +440,52 @@ export default function SeniorManagerSuppliersPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
+                      <div className="relative" ref={openDropdown === supplier.id ? dropdownRef : null}>
                         <button
-                          onClick={() => handleView(supplier)}
-                          className="p-1 text-green-600 hover:text-green-800 transition-colors"
-                          title="View Details"
+                          onClick={() => setOpenDropdown(openDropdown === supplier.id ? null : supplier.id)}
+                          className="p-1 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                          title="Actions"
                         >
-                          <Eye className="w-4 h-4" />
+                          <MoreVertical className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => handleEdit(supplier)}
-                          className="p-1 text-blue-600 hover:text-blue-800 transition-colors"
-                          title="Edit"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(supplier.id)}
-                          className="p-1 text-red-600 hover:text-red-800 transition-colors"
-                          title="Deactivate"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        
+                        {openDropdown === supplier.id && (
+                          <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+                            <div className="py-1">
+                              <button
+                                onClick={() => {
+                                  handleView(supplier)
+                                  setOpenDropdown(null)
+                                }}
+                                className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 transition-colors group"
+                              >
+                                <Eye className="w-4 h-4 mr-3 text-blue-600 group-hover:text-blue-700" />
+                                View Details
+                              </button>
+                              <button
+                                onClick={() => {
+                                  handleEdit(supplier)
+                                  setOpenDropdown(null)
+                                }}
+                                className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-amber-50 transition-colors group"
+                              >
+                                <Edit className="w-4 h-4 mr-3 text-amber-600 group-hover:text-amber-700" />
+                                Edit Supplier
+                              </button>
+                              <div className="border-t border-gray-100 my-1"></div>
+                              <button
+                                onClick={() => {
+                                  handleDelete(supplier.id)
+                                  setOpenDropdown(null)
+                                }}
+                                className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-red-50 transition-colors group"
+                              >
+                                <Trash2 className="w-4 h-4 mr-3 text-red-600 group-hover:text-red-700" />
+                                {supplier.is_active ? 'Deactivate' : 'Activate'} Supplier
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -554,28 +593,54 @@ export default function SeniorManagerSuppliersPage() {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-300">
-                    <button
-                      onClick={() => handleView(supplier)}
-                      className="flex-1 min-w-[80px] inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors"
-                    >
-                      <Eye className="w-4 h-4 mr-1" />
-                      <span className="hidden sm:inline">View</span>
-                    </button>
-                    <button
-                      onClick={() => handleEdit(supplier)}
-                      className="flex-1 min-w-[80px] inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-orange-700 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors"
-                    >
-                      <Edit className="w-4 h-4 mr-1" />
-                      <span className="hidden sm:inline">Edit</span>
-                    </button>
-                    <button
-                      onClick={() => handleDelete(supplier.id)}
-                      className="flex-1 min-w-[80px] inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4 mr-1" />
-                      <span className="hidden sm:inline">Delete</span>
-                    </button>
+                  <div className="flex justify-end pt-3 border-t border-gray-300">
+                    <div className="relative" ref={openDropdown === `mobile-${supplier.id}` ? dropdownRef : null}>
+                      <button
+                        onClick={() => setOpenDropdown(openDropdown === `mobile-${supplier.id}` ? null : `mobile-${supplier.id}`)}
+                        className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+                      >
+                        <MoreVertical className="w-4 h-4 mr-2" />
+                        Actions
+                      </button>
+                      
+                      {openDropdown === `mobile-${supplier.id}` && (
+                        <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+                          <div className="py-1">
+                            <button
+                              onClick={() => {
+                                handleView(supplier)
+                                setOpenDropdown(null)
+                              }}
+                              className="flex items-center w-full px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 transition-colors group"
+                            >
+                              <Eye className="w-4 h-4 mr-3 text-blue-600 group-hover:text-blue-700" />
+                              View Details
+                            </button>
+                            <button
+                              onClick={() => {
+                                handleEdit(supplier)
+                                setOpenDropdown(null)
+                              }}
+                              className="flex items-center w-full px-4 py-3 text-sm text-gray-700 hover:bg-amber-50 transition-colors group"
+                            >
+                              <Edit className="w-4 h-4 mr-3 text-amber-600 group-hover:text-amber-700" />
+                              Edit Supplier
+                            </button>
+                            <div className="border-t border-gray-100 my-1"></div>
+                            <button
+                              onClick={() => {
+                                handleDelete(supplier.id)
+                                setOpenDropdown(null)
+                              }}
+                              className="flex items-center w-full px-4 py-3 text-sm text-gray-700 hover:bg-red-50 transition-colors group"
+                            >
+                              <Trash2 className="w-4 h-4 mr-3 text-red-600 group-hover:text-red-700" />
+                              {supplier.is_active ? 'Deactivate' : 'Activate'} Supplier
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}

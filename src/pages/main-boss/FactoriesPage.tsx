@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Factory, Plus, Edit, Eye, Trash2, MapPin, Mail, Phone, Save, X, Building2 } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Factory, Plus, Edit, Eye, Trash2, MapPin, Mail, Phone, Save, X, Building2, MoreVertical } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -37,6 +37,8 @@ export default function FactoriesPage() {
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [editingFactory, setEditingFactory] = useState<FactoryData | null>(null)
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
   
   const [formData, setFormData] = useState<NewFactoryForm>({
     name: '',
@@ -51,6 +53,19 @@ export default function FactoriesPage() {
 
   useEffect(() => {
     fetchFactories()
+  }, [])
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setOpenDropdown(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
   }, [])
 
   const fetchFactories = async () => {
@@ -348,31 +363,52 @@ export default function FactoriesPage() {
                           </Badge>
                         </td>
                         <td className="py-3 px-4">
-                          <div className="flex items-center space-x-2">
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              onClick={() => handleEdit(factory)}
-                              className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                          <div className="relative" ref={openDropdown === factory.id ? dropdownRef : null}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setOpenDropdown(openDropdown === factory.id ? null : factory.id)}
+                              className="text-gray-600 hover:text-gray-900 hover:bg-gray-100"
                             >
-                              <Edit className="w-4 h-4" />
+                              <MoreVertical className="w-4 h-4" />
                             </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              onClick={() => handleToggleStatus(factory)}
-                              className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 text-xs px-2"
-                            >
-                              {factory.status === 'active' ? 'Freeze' : 'Activate'}
-                            </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              onClick={() => handleDelete(factory.id)}
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+                            
+                            {openDropdown === factory.id && (
+                              <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+                                <div className="py-1">
+                                  <button
+                                    onClick={() => {
+                                      handleEdit(factory)
+                                      setOpenDropdown(null)
+                                    }}
+                                    className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                  >
+                                    <Edit className="w-4 h-4 mr-2" />
+                                    Edit Factory
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      handleToggleStatus(factory)
+                                      setOpenDropdown(null)
+                                    }}
+                                    className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                  >
+                                    <Eye className="w-4 h-4 mr-2" />
+                                    {factory.status === 'active' ? 'Freeze Factory' : 'Activate Factory'}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      handleDelete(factory.id)
+                                      setOpenDropdown(null)
+                                    }}
+                                    className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                                  >
+                                    <Trash2 className="w-4 h-4 mr-2" />
+                                    Delete Factory
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </td>
                       </tr>
