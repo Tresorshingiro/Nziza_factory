@@ -53,8 +53,9 @@ interface DashboardStats {
   monthly: {
     totalMilk: number
     totalProduction: number
-    totalSales: number
     totalExpenses: number
+    avgQuality: number
+    conversionEfficiency: number
   }
   alerts: {
     lowStock: number
@@ -65,8 +66,9 @@ interface DashboardStats {
 
 interface ChartData {
   productionChart: Array<{ name: string; milk: number; cheese: number }>
-  salesChart: Array<{ name: string; revenue: number; orders: number }>
+  efficiencyChart: Array<{ name: string; efficiency: number; quality: number }>
   expenseChart: Array<{ category: string; amount: number; percentage: number }>
+  stockChart: Array<{ cheese_type: string; quantity: number; status: string }>
 }
 
 export default function FactoryManagerDashboard() {
@@ -74,13 +76,14 @@ export default function FactoryManagerDashboard() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState<DashboardStats>({
-    monthly: { totalMilk: 0, totalProduction: 0, totalSales: 0, totalExpenses: 0 },
+    monthly: { totalMilk: 0, totalProduction: 0, totalExpenses: 0, avgQuality: 0, conversionEfficiency: 0 },
     alerts: { lowStock: 0, pendingOrders: 0, overduePayments: 0 }
   })
   const [chartData, setChartData] = useState<ChartData>({
     productionChart: [],
-    salesChart: [],
-    expenseChart: []
+    efficiencyChart: [],
+    expenseChart: [],
+    stockChart: []
   })
 
   useEffect(() => {
@@ -114,21 +117,15 @@ export default function FactoryManagerDashboard() {
     // Monthly totals
     const { data: monthlyMilk } = await supabase
       .from('milk_collections')
-      .select('quantity_liters')
+      .select('quantity_liters, quality_grade')
       .eq('factory_id', user.factory_id)
       .gte('collection_date', startOfMonth.toISOString())
 
     const { data: monthlyProduction } = await supabase
       .from('production_batches')
-      .select('cheese_produced_kg')
+      .select('cheese_produced_kg, milk_used_liters')
       .eq('factory_id', user.factory_id)
       .gte('production_date', startOfMonth.toISOString().split('T')[0])
-
-    const { data: monthlySales } = await supabase
-      .from('sales_orders')
-      .select('total')
-      .eq('factory_id', user.factory_id)
-      .gte('order_date', startOfMonth.toISOString().split('T')[0])
 
     const { data: monthlyExpenses } = await supabase
       .from('expenses')
@@ -136,13 +133,27 @@ export default function FactoryManagerDashboard() {
       .eq('factory_id', user.factory_id)
       .gte('expense_date', startOfMonth.toISOString().split('T')[0])
 
+    // Calculate quality average (A=4, B=3, C=2, D=1)
+    const qualityPoints = monthlyMilk?.reduce((sum: number, item: any) => {
+      const grade = item.quality_grade?.toUpperCase()
+      const points = grade === 'A' ? 4 : grade === 'B' ? 3 : grade === 'C' ? 2 : grade === 'D' ? 1 : 0
+      return sum + points
+    }, 0) || 0
+    const avgQuality = monthlyMilk && monthlyMilk.length > 0 ? qualityPoints / monthlyMilk.length : 0
+
+    // Calculate conversion efficiency (kg cheese / liters milk)
+    const totalMilkUsed = monthlyProduction?.reduce((sum: number, item: any) => sum + (item.milk_used_liters || 0), 0) || 0
+    const totalCheeseProduced = monthlyProduction?.reduce((sum: number, item: any) => sum + (item.cheese_produced_kg || 0), 0) || 0
+    const conversionEfficiency = totalMilkUsed > 0 ? (totalCheeseProduced / totalMilkUsed) * 100 : 0
+
     setStats(prev => ({
       ...prev,
       monthly: {
         totalMilk: monthlyMilk?.reduce((sum: number, item: any) => sum + (item.quantity_liters || 0), 0) || 0,
-        totalProduction: monthlyProduction?.reduce((sum: number, item: any) => sum + (item.cheese_produced_kg || 0), 0) || 0,
-        totalSales: monthlySales?.reduce((sum: number, item: any) => sum + (item.total || 0), 0) || 0,
-        totalExpenses: monthlyExpenses?.reduce((sum: number, item: any) => sum + (item.total || 0), 0) || 0
+        totalProduction: totalCheeseProduced,
+        totalExpenses: monthlyExpenses?.reduce((sum: number, item: any) => sum + (item.total || 0), 0) || 0,
+        avgQuality: avgQuality,
+        conversionEfficiency: conversionEfficiency
       }
     }))
   }
@@ -179,28 +190,52 @@ export default function FactoryManagerDashboard() {
       })
     )
 
-    // Last 7 days sales data
-    const salesChart = await Promise.all(
+    // Last 7 days efficiency and quality data
+    const efficiencyChart = await Promise.all(
       last7Days.map(async (date) => {
-        const { data: salesData } = await supabase
-          .from('sales_orders')
-          .select('total')
+        const { data: productionData } = await supabase
+          .from('production_batches')
+          .select('cheese_produced_kg, milk_used_liters')
           .eq('factory_id', user!.factory_id!)
-          .eq('order_date', date)
+          .eq('production_date', date)
 
-        const { data: ordersCount } = await supabase
-          .from('sales_orders')
-          .select('id')
+        const { data: milkData } = await supabase
+          .from('milk_collections')
+          .select('quality_grade')
           .eq('factory_id', user!.factory_id!)
-          .eq('order_date', date)
+          .eq('collection_date', date)
+
+        const totalMilkUsed = productionData?.reduce((sum: number, item: any) => sum + (item.milk_used_liters || 0), 0) || 0
+        const totalCheese = productionData?.reduce((sum: number, item: any) => sum + (item.cheese_produced_kg || 0), 0) || 0
+        const efficiency = totalMilkUsed > 0 ? (totalCheese / totalMilkUsed) * 100 : 0
+
+        // Calculate quality average
+        const qualityPoints = milkData?.reduce((sum: number, item: any) => {
+          const grade = item.quality_grade?.toUpperCase()
+          const points = grade === 'A' ? 4 : grade === 'B' ? 3 : grade === 'C' ? 2 : grade === 'D' ? 1 : 0
+          return sum + points
+        }, 0) || 0
+        const avgQuality = milkData && milkData.length > 0 ? qualityPoints / milkData.length : 0
 
         return {
           name: new Date(date).toLocaleDateString('en-US', { weekday: 'short' }),
-          revenue: salesData?.reduce((sum: number, item: any) => sum + (item.total || 0), 0) || 0,
-          orders: ordersCount?.length || 0
+          efficiency: efficiency,
+          quality: avgQuality
         }
       })
     )
+
+    // Current stock levels by cheese type
+    const { data: stockData } = await supabase
+      .from('stock')
+      .select('cheese_type, quantity, reorder_level')
+      .eq('factory_id', user!.factory_id!)
+
+    const stockChart = stockData?.map((item: any) => ({
+      cheese_type: item.cheese_type || 'Unknown',
+      quantity: item.quantity || 0,
+      status: item.quantity <= item.reorder_level ? 'Low' : 'Normal'
+    })) || []
 
     // Expense breakdown by category
     const { data: expenseBreakdown } = await supabase
@@ -214,17 +249,18 @@ export default function FactoryManagerDashboard() {
       return acc
     }, {}) || {}
 
-    const totalExpenses = Object.values(expensesByCategory).reduce((sum: number, amount: any) => sum + amount, 0)
+    const totalExpenses = Object.values(expensesByCategory).reduce((sum: number, amount: any) => sum + amount, 0) as number
     const expenseChart = Object.entries(expensesByCategory).map(([category, amount]: [string, any]) => ({
       category,
-      amount,
-      percentage: totalExpenses > 0 ? (amount / totalExpenses) * 100 : 0
+      amount: amount as number,
+      percentage: totalExpenses > 0 ? ((amount as number) / totalExpenses) * 100 : 0
     }))
 
     setChartData({
       productionChart,
-      salesChart,
-      expenseChart
+      efficiencyChart,
+      expenseChart,
+      stockChart
     })
   }
 
@@ -351,12 +387,12 @@ export default function FactoryManagerDashboard() {
               <p className="text-sm text-green-700">Total Production (kg)</p>
             </div>
             <div className="text-center p-4 bg-purple-50 rounded-lg">
-              <p className="text-2xl font-bold text-purple-600">{formatCurrency(stats.monthly.totalSales)}</p>
-              <p className="text-sm text-purple-700">Total Sales</p>
+              <p className="text-2xl font-bold text-purple-600">{stats.monthly.avgQuality.toFixed(2)}</p>
+              <p className="text-sm text-purple-700">Avg Quality Score</p>
             </div>
-            <div className="text-center p-4 bg-red-50 rounded-lg">
-              <p className="text-2xl font-bold text-red-600">{formatCurrency(stats.monthly.totalExpenses)}</p>
-              <p className="text-sm text-red-700">Total Expenses</p>
+            <div className="text-center p-4 bg-orange-50 rounded-lg">
+              <p className="text-2xl font-bold text-orange-600">{stats.monthly.conversionEfficiency.toFixed(1)}%</p>
+              <p className="text-sm text-orange-700">Conversion Efficiency</p>
             </div>
           </div>
         </CardContent>
@@ -428,38 +464,38 @@ export default function FactoryManagerDashboard() {
           </CardContent>
         </Card>
 
-        {/* Sales Trend Chart */}
+        {/* Production Efficiency & Quality Trend */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <TrendingUp className="h-5 w-5" />
-              Weekly Sales Trend
+              Production Efficiency & Quality
             </CardTitle>
-            <CardDescription>Revenue and order count (last 7 days)</CardDescription>
+            <CardDescription>Conversion efficiency and milk quality (last 7 days)</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-64 w-full">
-              {chartData.salesChart.length > 0 ? (
+              {chartData.efficiencyChart.length > 0 ? (
                 <div className="relative h-full">
                   <div className="flex items-end justify-between h-full pb-8">
-                    {chartData.salesChart.map((day, index) => {
-                      const maxRevenue = Math.max(...chartData.salesChart.map(d => d.revenue))
-                      const maxOrders = Math.max(...chartData.salesChart.map(d => d.orders))
-                      const revenueHeight = maxRevenue > 0 ? (day.revenue / maxRevenue) * 180 : 0
-                      const ordersHeight = maxOrders > 0 ? (day.orders / maxOrders) * 180 : 0
+                    {chartData.efficiencyChart.map((day, index) => {
+                      const maxEfficiency = Math.max(...chartData.efficiencyChart.map(d => d.efficiency))
+                      const maxQuality = 4 // Max quality score (A=4)
+                      const efficiencyHeight = maxEfficiency > 0 ? (day.efficiency / maxEfficiency) * 180 : 0
+                      const qualityHeight = (day.quality / maxQuality) * 180
                       
                       return (
                         <div key={index} className="flex flex-col items-center gap-2 flex-1">
                           <div className="flex gap-1 items-end">
                             <div 
                               className="w-4 bg-purple-500 rounded-t"
-                              style={{ height: `${revenueHeight}px` }}
-                              title={`Revenue: ${formatCurrency(day.revenue)}`}
+                              style={{ height: `${efficiencyHeight}px` }}
+                              title={`Efficiency: ${day.efficiency.toFixed(1)}%`}
                             />
                             <div 
-                              className="w-4 bg-orange-500 rounded-t"
-                              style={{ height: `${ordersHeight}px` }}
-                              title={`Orders: ${day.orders}`}
+                              className="w-4 bg-yellow-500 rounded-t"
+                              style={{ height: `${qualityHeight}px` }}
+                              title={`Quality: ${day.quality.toFixed(2)}/4`}
                             />
                           </div>
                           <span className="text-xs text-gray-600">{day.name}</span>
@@ -470,11 +506,11 @@ export default function FactoryManagerDashboard() {
                   <div className="flex justify-center gap-4 mt-2">
                     <div className="flex items-center gap-1">
                       <div className="w-3 h-3 bg-purple-500 rounded"></div>
-                      <span className="text-xs text-gray-600">Revenue</span>
+                      <span className="text-xs text-gray-600">Efficiency %</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <div className="w-3 h-3 bg-orange-500 rounded"></div>
-                      <span className="text-xs text-gray-600">Orders</span>
+                      <div className="w-3 h-3 bg-yellow-500 rounded"></div>
+                      <span className="text-xs text-gray-600">Quality Score</span>
                     </div>
                   </div>
                 </div>
@@ -482,7 +518,7 @@ export default function FactoryManagerDashboard() {
                 <div className="flex items-center justify-center h-full text-gray-500">
                   <div className="text-center">
                     <TrendingUp className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                    <p>No sales data available</p>
+                    <p>No efficiency data available</p>
                   </div>
                 </div>
               )}
@@ -578,175 +614,58 @@ export default function FactoryManagerDashboard() {
           </CardContent>
         </Card>
 
-        {/* Sales vs Expenses Chart */}
+        {/* Stock Levels Overview */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <BarChart3 className="h-5 w-5" />
-              Sales vs Expenses
+              Stock Levels by Cheese Type
             </CardTitle>
-            <CardDescription>Revenue comparison with operational costs</CardDescription>
+            <CardDescription>Current inventory status</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-64 w-full">
-              {(() => {
-                const salesTotal = stats.monthly.totalSales
-                const expensesTotal = stats.monthly.totalExpenses
-                const maxValue = Math.max(salesTotal, expensesTotal)
-                
-                return (
-                  <div className="space-y-6 pt-4">
-                    {/* Sales Bar */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2">
-                          <div className="w-3 h-3 rounded bg-green-500"></div>
-                          <span className="font-medium">Sales Revenue</span>
-                        </div>
-                        <span className="font-semibold">RWF {salesTotal.toLocaleString()}</span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-8">
-                        <div 
-                          className="bg-green-500 h-8 rounded-full flex items-center justify-end pr-2 text-white text-xs font-medium"
-                          style={{ width: `${maxValue > 0 ? (salesTotal / maxValue) * 100 : 0}%` }}
-                        >
-                          {maxValue > 0 && ((salesTotal / maxValue) * 100).toFixed(0)}%
-                        </div>
-                      </div>
-                    </div>
+              {chartData.stockChart.length > 0 ? (
+                <div className="space-y-4 pt-4">
+                  {chartData.stockChart.map((stock, index) => {
+                    const maxQuantity = Math.max(...chartData.stockChart.map(s => s.quantity))
+                    const percentage = maxQuantity > 0 ? (stock.quantity / maxQuantity) * 100 : 0
+                    const isLow = stock.status === 'Low'
                     
-                    {/* Expenses Bar */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2">
-                          <div className="w-3 h-3 rounded bg-red-500"></div>
-                          <span className="font-medium">Total Expenses</span>
-                        </div>
-                        <span className="font-semibold">RWF {expensesTotal.toLocaleString()}</span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-8">
-                        <div 
-                          className="bg-red-500 h-8 rounded-full flex items-center justify-end pr-2 text-white text-xs font-medium"
-                          style={{ width: `${maxValue > 0 ? (expensesTotal / maxValue) * 100 : 0}%` }}
-                        >
-                          {maxValue > 0 && ((expensesTotal / maxValue) * 100).toFixed(0)}%
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Net Result */}
-                    <div className="pt-4 border-t">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-gray-700">Net Result:</span>
-                        <div className="flex items-center gap-2">
-                          {salesTotal >= expensesTotal ? (
-                            <ArrowUpRight className="h-4 w-4 text-green-500" />
-                          ) : (
-                            <ArrowDownRight className="h-4 w-4 text-red-500" />
-                          )}
-                          <span className={`font-bold ${salesTotal >= expensesTotal ? 'text-green-600' : 'text-red-600'}`}>
-                            RWF {Math.abs(salesTotal - expensesTotal).toLocaleString()}
-                            {salesTotal >= expensesTotal ? ' Profit' : ' Loss'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })()}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Profit & Loss Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <PieChart className="h-5 w-5" />
-              Profit & Loss Analysis
-            </CardTitle>
-            <CardDescription>Financial performance overview</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-64 w-full">
-              {(() => {
-                const salesTotal = stats.monthly.totalSales
-                const expensesTotal = stats.monthly.totalExpenses
-                const profit = salesTotal - expensesTotal
-                const isProfit = profit >= 0
-                
-                return (
-                  <div className="space-y-6">
-                    {/* Performance Summary */}
-                    <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
-                      <div className="text-center">
-                        <p className="text-sm text-gray-600">Revenue</p>
-                        <p className="text-lg font-bold text-green-600">
-                          RWF {salesTotal.toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-sm text-gray-600">Expenses</p>
-                        <p className="text-lg font-bold text-red-600">
-                          RWF {expensesTotal.toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-sm text-gray-600">Net Result</p>
-                        <p className={`text-lg font-bold ${isProfit ? 'text-green-600' : 'text-red-600'}`}>
-                          RWF {Math.abs(profit).toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    {/* Visual Profit/Loss Indicator */}
-                    <div className="relative">
-                      <div className="flex justify-center mb-4">
-                        <div className={`w-32 h-32 rounded-full flex items-center justify-center ${
-                          isProfit ? 'bg-green-100 border-4 border-green-500' : 'bg-red-100 border-4 border-red-500'
-                        }`}>
-                          <div className="text-center">
-                            {isProfit ? (
-                              <TrendingUp className="h-8 w-8 text-green-600 mx-auto mb-1" />
-                            ) : (
-                              <TrendingDown className="h-8 w-8 text-red-600 mx-auto mb-1" />
+                    return (
+                      <div key={index} className="space-y-1">
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-3 h-3 rounded ${isLow ? 'bg-red-500' : 'bg-green-500'}`}></div>
+                            <span className="font-medium">{stock.cheese_type}</span>
+                            {isLow && (
+                              <Badge variant="destructive" className="text-xs px-1 py-0">Low</Badge>
                             )}
-                            <p className={`text-sm font-bold ${isProfit ? 'text-green-600' : 'text-red-600'}`}>
-                              {isProfit ? 'PROFIT' : 'LOSS'}
-                            </p>
-                            <p className={`text-xs ${isProfit ? 'text-green-600' : 'text-red-600'}`}>
-                              {salesTotal > 0 ? ((Math.abs(profit) / salesTotal) * 100).toFixed(1) : 0}%
-                            </p>
+                          </div>
+                          <span className="font-semibold">{stock.quantity} kg</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-6">
+                          <div 
+                            className={`h-6 rounded-full flex items-center justify-end pr-2 text-white text-xs font-medium ${
+                              isLow ? 'bg-red-500' : 'bg-green-500'
+                            }`}
+                            style={{ width: `${percentage}%` }}
+                          >
+                            {percentage > 15 && `${percentage.toFixed(0)}%`}
                           </div>
                         </div>
                       </div>
-                      
-                      {/* Profit Margin Indicator */}
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-xs text-gray-600">
-                          <span>Margin Health</span>
-                          <span>{salesTotal > 0 ? ((profit / salesTotal) * 100).toFixed(1) : 0}%</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div 
-                            className={`h-2 rounded-full ${
-                              profit > 0 ? 'bg-green-500' : 'bg-red-500'
-                            }`}
-                            style={{ 
-                              width: `${Math.min(Math.abs(profit / (salesTotal || 1)) * 100, 100)}%` 
-                            }}
-                          ></div>
-                        </div>
-                        <div className="flex justify-between text-xs">
-                          <span className="text-red-600">Loss</span>
-                          <span className="text-gray-500">Break Even</span>
-                          <span className="text-green-600">Profit</span>
-                        </div>
-                      </div>
-                    </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full text-gray-500">
+                  <div className="text-center">
+                    <BarChart3 className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>No stock data available</p>
                   </div>
-                )
-              })()}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -843,19 +762,19 @@ export default function FactoryManagerDashboard() {
 
             <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
               <div className="flex items-center gap-3">
-                <DollarSign className="h-8 w-8 text-green-600" />
+                <TrendingUp className="h-8 w-8 text-green-600" />
                 <div>
-                  <p className="font-medium">Revenue vs Expenses</p>
+                  <p className="font-medium">Milk Quality</p>
                   <p className="text-sm text-gray-600">
-                    {stats.monthly.totalSales > 0 && stats.monthly.totalExpenses > 0
-                      ? `${((stats.monthly.totalSales - stats.monthly.totalExpenses) / stats.monthly.totalSales * 100).toFixed(1)}% margin`
+                    {stats.monthly.avgQuality > 0
+                      ? `${stats.monthly.avgQuality.toFixed(2)}/4.00 avg score`
                       : 'N/A'
                     }
                   </p>
                 </div>
               </div>
               <Badge variant="outline" className="bg-white">
-                {stats.monthly.totalSales > stats.monthly.totalExpenses ? 'Profitable' : 'Review Needed'}
+                {stats.monthly.avgQuality >= 3 ? 'Excellent' : stats.monthly.avgQuality >= 2 ? 'Good' : 'Review Needed'}
               </Badge>
             </div>
 

@@ -64,11 +64,13 @@ export default function ProductionPage() {
     cheese_type: string
     milk_used_liters: string
     cheese_produced_kg: string
+    production_date: string
     notes: string
   }>({
     cheese_type: '',
     milk_used_liters: '',
     cheese_produced_kg: '',
+    production_date: new Date().toISOString().split('T')[0], // Default to today
     notes: ''
   })
   const [formLoading, setFormLoading] = useState(false)
@@ -235,7 +237,7 @@ export default function ProductionPage() {
       const insertData = {
         factory_id: user?.factory_id || '11111111-1111-1111-1111-111111111111',
         batch_number: batchNumber,
-        production_date: new Date().toISOString().split('T')[0],
+        production_date: formData.production_date,
         cheese_type: formData.cheese_type.trim(),
         milk_used_liters: milkLiters,
         cheese_produced_kg: cheeseProduced,
@@ -269,7 +271,7 @@ export default function ProductionPage() {
       toast.success(`Production batch created and recorded to factory stock! Batch #${batchNumber}`)
 
       setShowForm(false)
-      setFormData({ cheese_type: '', milk_used_liters: '', cheese_produced_kg: '', notes: '' })
+      setFormData({ cheese_type: '', milk_used_liters: '', cheese_produced_kg: '', production_date: new Date().toISOString().split('T')[0], notes: '' })
       fetchProductionData()
 
     } catch (error: any) {
@@ -617,6 +619,22 @@ export default function ProductionPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Production Date
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.production_date}
+                    onChange={(e) => setFormData(prev => ({ ...prev, production_date: e.target.value }))}
+                    max={new Date().toISOString().split('T')[0]}
+                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-gray-900"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
                     Milk Used (Liters)
                   </label>
                   <input
@@ -630,22 +648,22 @@ export default function ProductionPage() {
                     required
                   />
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Cheese Produced (kg)
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0.1"
-                  value={formData.cheese_produced_kg}
-                  onChange={(e) => setFormData(prev => ({ ...prev, cheese_produced_kg: e.target.value }))}
-                  className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-gray-900"
-                  placeholder="Enter cheese quantity produced"
-                  required
-                />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Cheese Produced (kg)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={formData.cheese_produced_kg}
+                    onChange={(e) => setFormData(prev => ({ ...prev, cheese_produced_kg: e.target.value }))}
+                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-gray-900"
+                    placeholder="Enter cheese quantity produced"
+                    required
+                  />
+                </div>
               </div>
 
               <div>

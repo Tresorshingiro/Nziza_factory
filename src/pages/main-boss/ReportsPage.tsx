@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../stores/authStore'
 import toast from 'react-hot-toast'
@@ -120,15 +120,6 @@ export default function MainBossReportsPage() {
       consolidation: 'main_stock'
     },
     {
-      id: 'sales_finance',
-      name: 'Sales & Finance',
-      description: 'Revenue, expenses, and financial performance analysis',
-      icon: DollarSign,
-      color: 'bg-orange-500',
-      table: 'sales_orders',
-      consolidation: 'sales_finance'
-    },
-    {
       id: 'customer_deliveries',
       name: 'Customer Deliveries',
       description: 'Customer orders, delivery schedules, and fulfillment status',
@@ -138,11 +129,6 @@ export default function MainBossReportsPage() {
       consolidation: 'deliveries'
     }
   ]
-
-  useEffect(() => {
-    fetchReportStats()
-    fetchReportData()
-  }, [selectedReportType, selectedPeriod])
 
   const fetchReportStats = async () => {
     try {
@@ -180,7 +166,7 @@ export default function MainBossReportsPage() {
     }
   }
 
-  const fetchReportData = async () => {
+  const fetchReportData = useCallback(async () => {
     setLoading(true)
     try {
       const reportType = reportTypes.find(t => t.id === selectedReportType)
@@ -198,10 +184,6 @@ export default function MainBossReportsPage() {
         case 'main_stock':
           data = await fetchMainStockMovementsData(dateFilter)
           break
-
-        case 'sales_finance':
-          data = await fetchSalesFinanceData(dateFilter)
-          break
         case 'deliveries':
           data = await fetchCustomerDeliveriesData(dateFilter)
           break
@@ -216,7 +198,12 @@ export default function MainBossReportsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [selectedReportType, selectedPeriod, customDateRange])
+
+  useEffect(() => {
+    fetchReportStats()
+    fetchReportData()
+  }, [fetchReportData])
 
   // Same date filtering logic as factory manager
   const getDateFilter = () => {
@@ -494,26 +481,36 @@ export default function MainBossReportsPage() {
       .select(`
         *,
         customers!inner(name, customer_type, phone),
-        factories(name)
+        factories(name),
+        sales_order_items(quantity)
       `)
       .gte('order_date', dateFilter.start || '2000-01-01')
       .lte('order_date', dateFilter.end || new Date().toISOString())
       .order('order_date', { ascending: false })
 
-    return (orders || []).map((order: any) => ({
-      order_number: order.order_number,
-      customer_name: order.customers.name,
-      customer_type: order.customers.customer_type,
-      factory_name: order.factories?.name || 'N/A',
-      order_date: order.order_date,
-      delivery_date: order.delivery_date,
-      order_total: order.total,
-      order_status: order.status,
-      payment_status: order.payment_status,
-      delivery_status: order.delivery_date ? 
-        (new Date(order.delivery_date) <= new Date() ? 'Delivered' : 'Scheduled') : 
-        'Pending Schedule'
-    }))
+    return (orders || []).map((order: any) => {
+      // Calculate total quantity from order items
+      const totalQuantity = (order.sales_order_items || []).reduce(
+        (sum: number, item: any) => sum + (Number(item.quantity) || 0), 
+        0
+      )
+      
+      return {
+        order_number: order.order_number,
+        customer_name: order.customers.name,
+        customer_type: order.customers.customer_type,
+        factory_name: order.factories?.name || 'N/A',
+        order_date: order.order_date,
+        delivery_date: order.delivery_date,
+        total_quantity: totalQuantity,
+        order_total: order.total,
+        order_status: order.status,
+        payment_status: order.payment_status,
+        delivery_status: order.delivery_date ? 
+          (new Date(order.delivery_date) <= new Date() ? 'Delivered' : 'Scheduled') : 
+          'Pending Schedule'
+      }
+    })
   }
 
 
@@ -624,6 +621,42 @@ export default function MainBossReportsPage() {
         })
       })
       
+      // Add totals row for daily_milk_production and main_stock_movements
+      if (selectedReportType === 'daily_milk_production' && reportData.length > 0) {
+        const totalMilk = reportData.reduce((sum, item) => sum + (Number(item.total_milk_collected) || 0), 0)
+        const totalCheese = reportData.reduce((sum, item) => sum + (Number(item.cheese_produced) || 0), 0)
+        
+        const totalsRow = displayColumns.map(col => {
+          if (col === 'factory_name') return 'TOTAL'
+          if (col === 'total_milk_collected') return totalMilk.toLocaleString()
+          if (col === 'cheese_produced') return totalCheese.toLocaleString()
+          return ''
+        })
+        tableData.push(totalsRow)
+      } else if (selectedReportType === 'main_stock_movements' && reportData.length > 0) {
+        const totalQuantity = reportData.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)
+        const totalValue = reportData.reduce((sum, item) => sum + (Number(item.total_value) || 0), 0)
+        
+        const totalsRow = displayColumns.map(col => {
+          if (col === 'date') return 'TOTAL'
+          if (col === 'quantity') return totalQuantity.toLocaleString()
+          if (col === 'total_value') return `RWF ${totalValue.toLocaleString()}`
+          return ''
+        })
+        tableData.push(totalsRow)
+      } else if (selectedReportType === 'customer_deliveries' && reportData.length > 0) {
+        const totalQuantity = reportData.reduce((sum, item) => sum + (Number(item.total_quantity) || 0), 0)
+        const totalAmount = reportData.reduce((sum, item) => sum + (Number(item.order_total) || 0), 0)
+        
+        const totalsRow = displayColumns.map(col => {
+          if (col === 'order_number') return 'TOTAL'
+          if (col === 'total_quantity') return totalQuantity.toLocaleString()
+          if (col === 'order_total') return `RWF ${totalAmount.toLocaleString()}`
+          return ''
+        })
+        tableData.push(totalsRow)
+      }
+      
       doc.autoTable({
         head: [tableHeaders],
         body: tableData,
@@ -707,6 +740,42 @@ export default function MainBossReportsPage() {
       })
     })
     
+    // Add totals row for daily_milk_production and main_stock_movements
+    if (selectedReportType === 'daily_milk_production' && reportData.length > 0) {
+      const totalMilk = reportData.reduce((sum, item) => sum + (Number(item.total_milk_collected) || 0), 0)
+      const totalCheese = reportData.reduce((sum, item) => sum + (Number(item.cheese_produced) || 0), 0)
+      
+      const totalsRow = displayColumns.map(col => {
+        if (col === 'factory_name') return 'TOTAL'
+        if (col === 'total_milk_collected') return totalMilk
+        if (col === 'cheese_produced') return totalCheese
+        return ''
+      })
+      dataRows.push(totalsRow)
+    } else if (selectedReportType === 'main_stock_movements' && reportData.length > 0) {
+      const totalQuantity = reportData.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)
+      const totalValue = reportData.reduce((sum, item) => sum + (Number(item.total_value) || 0), 0)
+      
+      const totalsRow = displayColumns.map(col => {
+        if (col === 'date') return 'TOTAL'
+        if (col === 'quantity') return totalQuantity
+        if (col === 'total_value') return totalValue
+        return ''
+      })
+      dataRows.push(totalsRow)
+    } else if (selectedReportType === 'customer_deliveries' && reportData.length > 0) {
+      const totalQuantity = reportData.reduce((sum, item) => sum + (Number(item.total_quantity) || 0), 0)
+      const totalAmount = reportData.reduce((sum, item) => sum + (Number(item.order_total) || 0), 0)
+      
+      const totalsRow = displayColumns.map(col => {
+        if (col === 'order_number') return 'TOTAL'
+        if (col === 'total_quantity') return totalQuantity
+        if (col === 'order_total') return totalAmount
+        return ''
+      })
+      dataRows.push(totalsRow)
+    }
+    
     const allData = [...headerRows, ...dataRows]
     const mainSheet = XLSX.utils.aoa_to_sheet(allData)
     
@@ -781,7 +850,9 @@ export default function MainBossReportsPage() {
   const formatValue = (key: string, value: any) => {
     if (value === null || value === undefined) return 'N/A'
     
-    if (key.includes('revenue') || key.includes('total') || key.includes('profit') || key.includes('expenses') || key.includes('value')) {
+    // Exclude total_milk_collected, quantity, and total_quantity from currency formatting
+    if ((key.includes('revenue') || key.includes('total') || key.includes('profit') || key.includes('expenses') || key.includes('value')) 
+        && key !== 'total_milk_collected' && key !== 'quantity' && key !== 'total_quantity') {
       return `RWF ${Number(value).toLocaleString()}`
     }
     
@@ -811,13 +882,11 @@ export default function MainBossReportsPage() {
   const getDisplayColumns = () => {
     switch (selectedReportType) {
       case 'daily_milk_production':
-        return ['factory_name', 'date', 'total_milk_collected', 'farmer_count', 'cheese_produced', 'conversion_efficiency']
+        return ['factory_name', 'date', 'total_milk_collected', 'farmer_count', 'cheese_produced']
       case 'main_stock_movements':
         return ['date', 'cheese_type', 'movement_type', 'quantity', 'total_value', 'source_factory', 'reason']
-      case 'sales_finance':
-        return ['factory_name', 'total_revenue', 'total_expenses', 'gross_profit', 'profit_margin', 'payment_success_rate']
       case 'customer_deliveries':
-        return ['order_number', 'customer_name', 'factory_name', 'order_date', 'delivery_date', 'order_total', 'delivery_status']
+        return ['order_number', 'customer_name', 'order_date', 'delivery_date', 'total_quantity', 'order_total', 'delivery_status']
       default:
         return Object.keys(reportData[0] || {}).slice(0, 6)
     }

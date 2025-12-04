@@ -37,12 +37,12 @@ interface FinancialMetrics {
 interface FactoryFinancials {
   factory_id: string
   factory_name: string
-  revenue: number
   expenses: number
-  profit: number
-  profitMargin: number
-  totalOrders: number
-  avgOrderValue: number
+  production_volume: number // kg of cheese produced
+  milk_collected: number // liters
+  cost_per_kg: number // expense per kg of cheese
+  conversion_rate: number // kg cheese per liter milk
+  efficiency_score: number // based on cost and conversion
   topProducts: string[]
 }
 
@@ -60,6 +60,7 @@ interface ExpenseBreakdown {
   amount: number
   percentage: number
   color: string
+  [key: string]: string | number
 }
 
 interface RevenueStream {
@@ -151,12 +152,14 @@ export default function FinancialOverviewPage() {
 
   const fetchFinancialMetrics = async () => {
     try {
-      let salesQuery = supabase
+      // Get company-wide revenue from all sales (no factory filter - sales recorded from main stock)
+      const salesQuery = supabase
         .from('sales_orders')
-        .select('total, order_date, factory_id')
+        .select('total, order_date')
         .gte('order_date', dateFilter.startDate)
         .lte('order_date', dateFilter.endDate)
 
+      // Get expenses - can filter by factory
       let expensesQuery = supabase
         .from('expenses')
         .select('total, expense_date, factory_id')
@@ -164,7 +167,6 @@ export default function FinancialOverviewPage() {
         .lte('expense_date', dateFilter.endDate)
 
       if (selectedFactory !== 'all') {
-        salesQuery = salesQuery.eq('factory_id', selectedFactory)
         expensesQuery = expensesQuery.eq('factory_id', selectedFactory)
       }
 
@@ -176,8 +178,8 @@ export default function FinancialOverviewPage() {
       if (salesResult.error) throw salesResult.error
       if (expensesResult.error) throw expensesResult.error
 
-      const totalRevenue = salesResult.data?.reduce((sum, sale) => sum + (sale.total || 0), 0) || 0
-      const totalExpenses = expensesResult.data?.reduce((sum, expense) => sum + (expense.total || 0), 0) || 0
+      const totalRevenue = salesResult.data?.reduce((sum: number, sale: any) => sum + (sale.total || 0), 0) || 0
+      const totalExpenses = expensesResult.data?.reduce((sum: number, expense: any) => sum + (expense.total || 0), 0) || 0
       const netProfit = totalRevenue - totalExpenses
       const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0
 
@@ -211,14 +213,8 @@ export default function FinancialOverviewPage() {
       if (!factories) return
 
       const factoryStats = await Promise.all(
-        factories.map(async (factory) => {
-          const [salesResult, expensesResult, ordersResult] = await Promise.all([
-            supabase
-              .from('sales_orders')
-              .select('total')
-              .eq('factory_id', factory.id)
-              .gte('order_date', dateFilter.startDate)
-              .lte('order_date', dateFilter.endDate),
+        factories.map(async (factory: any) => {
+          const [expensesResult, productionResult, milkResult] = await Promise.all([
             supabase
               .from('expenses')
               .select('total')
@@ -226,35 +222,54 @@ export default function FinancialOverviewPage() {
               .gte('expense_date', dateFilter.startDate)
               .lte('expense_date', dateFilter.endDate),
             supabase
-              .from('sales_orders')
-              .select('id, total')
+              .from('production_batches')
+              .select('quantity_produced, cheese_type')
               .eq('factory_id', factory.id)
-              .gte('order_date', dateFilter.startDate)
-              .lte('order_date', dateFilter.endDate)
+              .gte('production_date', dateFilter.startDate)
+              .lte('production_date', dateFilter.endDate)
+              .eq('status', 'completed'),
+            supabase
+              .from('milk_collections')
+              .select('quantity')
+              .eq('factory_id', factory.id)
+              .gte('collection_date', dateFilter.startDate)
+              .lte('collection_date', dateFilter.endDate)
           ])
 
-          const revenue = salesResult.data?.reduce((sum, sale) => sum + (sale.total || 0), 0) || 0
-          const expenses = expensesResult.data?.reduce((sum, expense) => sum + (expense.total || 0), 0) || 0
-          const profit = revenue - expenses
-          const profitMargin = revenue > 0 ? (profit / revenue) * 100 : 0
-          const totalOrders = ordersResult.data?.length || 0
-          const avgOrderValue = totalOrders > 0 ? revenue / totalOrders : 0
+          const expenses = expensesResult.data?.reduce((sum: number, expense: any) => sum + (expense.total || 0), 0) || 0
+          const production_volume = productionResult.data?.reduce((sum: number, p: any) => sum + (p.quantity_produced || 0), 0) || 0
+          const milk_collected = milkResult.data?.reduce((sum: number, m: any) => sum + (m.quantity || 0), 0) || 0
+          
+          const cost_per_kg = production_volume > 0 ? expenses / production_volume : 0
+          const conversion_rate = milk_collected > 0 ? production_volume / milk_collected : 0
+          
+          // Efficiency score: lower cost per kg + higher conversion rate = better
+          const cost_score = cost_per_kg > 0 ? Math.max(0, 100 - cost_per_kg) : 0
+          const conversion_score = conversion_rate * 100
+          const efficiency_score = (cost_score + conversion_score) / 2
+
+          // Get top products
+          const productCounts = productionResult.data?.reduce((acc: any, p: any) => {
+            acc[p.cheese_type] = (acc[p.cheese_type] || 0) + 1
+            return acc
+          }, {}) || {}
+          const topProducts = Object.keys(productCounts).sort((a, b) => productCounts[b] - productCounts[a]).slice(0, 3)
 
           return {
             factory_id: factory.id,
             factory_name: factory.name,
-            revenue,
             expenses,
-            profit,
-            profitMargin,
-            totalOrders,
-            avgOrderValue,
-            topProducts: ['Gouda Cheese', 'Mozzarella', 'Cheddar'] // Placeholder - would come from actual product data
+            production_volume,
+            milk_collected,
+            cost_per_kg,
+            conversion_rate,
+            efficiency_score,
+            topProducts
           }
         })
       )
 
-      setFactoryFinancials(factoryStats.sort((a, b) => b.revenue - a.revenue))
+      setFactoryFinancials(factoryStats.sort((a, b) => b.efficiency_score - a.efficiency_score))
     } catch (error) {
       console.error('Error fetching factory financials:', error)
     }
@@ -266,20 +281,16 @@ export default function FinancialOverviewPage() {
       const endDate = new Date(dateFilter.endDate)
       const monthlyData: { [key: string]: MonthlyFinancials } = {}
 
-      // Get sales data
-      let salesQuery = supabase
+      // Get company-wide sales data (no factory filter - sales from main stock)
+      const salesQuery = supabase
         .from('sales_orders')
         .select('total, order_date')
         .gte('order_date', dateFilter.startDate)
         .lte('order_date', dateFilter.endDate)
 
-      if (selectedFactory !== 'all') {
-        salesQuery = salesQuery.eq('factory_id', selectedFactory)
-      }
-
       const { data: sales } = await salesQuery
 
-      // Get expenses data
+      // Get expenses data - can filter by factory
       let expensesQuery = supabase
         .from('expenses')
         .select('total, expense_date')
@@ -293,7 +304,7 @@ export default function FinancialOverviewPage() {
       const { data: expenses } = await expensesQuery
 
       // Process sales data
-      sales?.forEach(sale => {
+      sales?.forEach((sale: any) => {
         const date = new Date(sale.order_date)
         const monthKey = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`
         const monthName = date.toLocaleDateString('en-US', { month: 'short' })
@@ -313,7 +324,7 @@ export default function FinancialOverviewPage() {
       })
 
       // Process expenses data
-      expenses?.forEach(expense => {
+      expenses?.forEach((expense: any) => {
         const date = new Date(expense.expense_date)
         const monthKey = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`
 
@@ -359,7 +370,7 @@ export default function FinancialOverviewPage() {
       const categoryTotals: { [key: string]: number } = {}
       let totalExpenses = 0
 
-      expenses.forEach(expense => {
+      expenses.forEach((expense: any) => {
         const category = expense.category || 'Other'
         categoryTotals[category] = (categoryTotals[category] || 0) + (expense.total || 0)
         totalExpenses += expense.total || 0
@@ -410,23 +421,32 @@ export default function FinancialOverviewPage() {
       })
     }
 
-    // Factory-specific alerts
+    // Factory-specific alerts (cost efficiency focused)
     factoryFinancials.forEach(factory => {
-      if (factory.profitMargin < 5) {
+      if (factory.cost_per_kg > 1000) { // High cost per kg
         alerts.push({
-          type: 'danger',
-          message: 'Factory showing negative or very low profit margin',
+          type: 'warning',
+          message: 'Factory has high production cost per kg',
           factory: factory.factory_name,
-          amount: factory.profitMargin
+          amount: factory.cost_per_kg
         })
       }
 
-      if (factory.revenue < 100000) {
+      if (factory.conversion_rate < 0.1) { // Low conversion efficiency
         alerts.push({
           type: 'warning',
-          message: 'Factory revenue below expected threshold',
+          message: 'Factory showing low milk-to-cheese conversion rate',
           factory: factory.factory_name,
-          amount: factory.revenue
+          amount: factory.conversion_rate
+        })
+      }
+
+      if (factory.efficiency_score < 30) { // Low overall efficiency
+        alerts.push({
+          type: 'danger',
+          message: 'Factory efficiency score is critically low',
+          factory: factory.factory_name,
+          amount: factory.efficiency_score
         })
       }
     })
@@ -475,19 +495,20 @@ export default function FinancialOverviewPage() {
 
     // Factory Performance Table
     doc.setFontSize(14)
-    doc.text('Factory Financial Performance', 20, 170)
+    doc.text('Factory Cost Efficiency & Production', 20, 170)
     
     const tableData = factoryFinancials.slice(0, 5).map(factory => [
       factory.factory_name,
-      formatCurrency(factory.revenue),
+      `${factory.production_volume.toFixed(2)} kg`,
       formatCurrency(factory.expenses),
-      formatCurrency(factory.profit),
-      `${factory.profitMargin.toFixed(2)}%`
+      formatCurrency(factory.cost_per_kg),
+      factory.conversion_rate.toFixed(3),
+      factory.efficiency_score.toFixed(1)
     ])
 
     ;(doc as any).autoTable({
       startY: 180,
-      head: [['Factory', 'Revenue', 'Expenses', 'Profit', 'Margin']],
+      head: [['Factory', 'Production (kg)', 'Expenses', 'Cost/kg', 'Conversion', 'Efficiency']],
       body: tableData,
       styles: { fontSize: 9 }
     })
@@ -520,30 +541,9 @@ export default function FinancialOverviewPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Financial Overview</h1>
-          <p className="text-gray-600">Comprehensive financial analysis and performance metrics</p>
-        </div>
-        
-        <div className="flex items-center gap-3">
-          <button
-            onClick={refreshFinancialData}
-            disabled={refreshing}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-            {refreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
-          
-          <button
-            onClick={generateFinancialReport}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            Financial Report
-          </button>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Financial Overview</h1>
+        <p className="text-gray-600">Comprehensive financial analysis and performance metrics</p>
       </div>
 
       {/* Financial Alerts */}
@@ -720,7 +720,7 @@ export default function FinancialOverviewPage() {
                 innerRadius={60}
                 outerRadius={120}
                 dataKey="amount"
-                label={({ category, percentage }) => `${category} (${percentage.toFixed(1)}%)`}
+                label={({ category, percentage }: any) => `${category} (${percentage.toFixed(1)}%)`}
               >
                 {expenseBreakdown.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.color} />
@@ -733,18 +733,20 @@ export default function FinancialOverviewPage() {
 
         {/* Factory Performance */}
         <div className="bg-white p-6 rounded-xl border border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Factory Financial Performance</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Factory Production Efficiency</h3>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={factoryFinancials.slice(0, 5)}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="factory_name" />
               <YAxis />
               <Tooltip formatter={(value: any, name: string) => [
-                formatCurrency(value),
-                name.charAt(0).toUpperCase() + name.slice(1)
+                name === 'expenses' ? formatCurrency(value) : 
+                name === 'production_volume' ? `${value.toFixed(2)} kg` : value.toFixed(2),
+                name === 'production_volume' ? 'Production (kg)' :
+                name === 'expenses' ? 'Expenses' : name
               ]} />
-              <Bar dataKey="revenue" fill="#10b981" />
-              <Bar dataKey="expenses" fill="#ef4444" />
+              <Bar dataKey="production_volume" fill="#10b981" name="Production (kg)" />
+              <Bar dataKey="expenses" fill="#ef4444" name="Expenses" />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -774,7 +776,7 @@ export default function FinancialOverviewPage() {
       {/* Factory Financial Details Table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="p-6 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">Factory Financial Details</h3>
+          <h3 className="text-lg font-semibold text-gray-900">Factory Cost Efficiency & Production</h3>
         </div>
         
         <div className="overflow-x-auto">
@@ -782,12 +784,12 @@ export default function FinancialOverviewPage() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Factory</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revenue</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Production (kg)</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Milk (L)</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expenses</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Profit</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Margin</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Orders</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Order</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cost/kg</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Conversion</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Efficiency</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -801,25 +803,33 @@ export default function FinancialOverviewPage() {
                 factoryFinancials.map((factory) => (
                   <tr key={factory.factory_id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 font-medium text-gray-900">{factory.factory_name}</td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{formatCurrency(factory.revenue)}</td>
+                    <td className="px-6 py-4 text-sm text-gray-900">{factory.production_volume.toFixed(2)} kg</td>
+                    <td className="px-6 py-4 text-sm text-gray-900">{factory.milk_collected.toFixed(2)} L</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{formatCurrency(factory.expenses)}</td>
                     <td className="px-6 py-4">
                       <span className={`text-sm font-medium ${
-                        factory.profit >= 0 ? 'text-green-600' : 'text-red-600'
+                        factory.cost_per_kg < 500 ? 'text-green-600' : 
+                        factory.cost_per_kg < 1000 ? 'text-yellow-600' : 'text-red-600'
                       }`}>
-                        {formatCurrency(factory.profit)}
+                        {formatCurrency(factory.cost_per_kg)}
                       </span>
                     </td>
                     <td className="px-6 py-4">
                       <span className={`text-sm font-medium ${
-                        factory.profitMargin >= 10 ? 'text-green-600' : 
-                        factory.profitMargin >= 5 ? 'text-yellow-600' : 'text-red-600'
+                        factory.conversion_rate >= 0.15 ? 'text-green-600' : 
+                        factory.conversion_rate >= 0.1 ? 'text-yellow-600' : 'text-red-600'
                       }`}>
-                        {formatPercentage(factory.profitMargin)}
+                        {factory.conversion_rate.toFixed(3)}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{factory.totalOrders}</td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{formatCurrency(factory.avgOrderValue)}</td>
+                    <td className="px-6 py-4">
+                      <span className={`text-sm font-medium ${
+                        factory.efficiency_score >= 60 ? 'text-green-600' : 
+                        factory.efficiency_score >= 30 ? 'text-yellow-600' : 'text-red-600'
+                      }`}>
+                        {factory.efficiency_score.toFixed(1)}
+                      </span>
+                    </td>
                   </tr>
                 ))
               )}

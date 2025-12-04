@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../stores/authStore'
 import toast from 'react-hot-toast'
@@ -113,16 +113,8 @@ export default function ReportsPage() {
       name: 'Production Reports', 
       icon: Factory, 
       color: 'bg-blue-500', 
-      description: 'Track daily production metrics, cheese output, and quality scores',
+      description: 'Track daily production metrics, cheese output, and conversion efficiency',
       table: 'production_batches'
-    },
-    { 
-      id: 'sales', 
-      name: 'Sales Reports', 
-      icon: TrendingUp, 
-      color: 'bg-green-500', 
-      description: 'Monitor sales performance, orders, and revenue trends',
-      table: 'sales_orders'
     },
     { 
       id: 'expenses', 
@@ -148,22 +140,7 @@ export default function ReportsPage() {
       description: 'Stock levels, movements, and inventory valuation',
       table: 'stock'
     },
-    { 
-      id: 'customers', 
-      name: 'Customer Reports', 
-      icon: Users, 
-      color: 'bg-indigo-500', 
-      description: 'Customer analysis, order patterns, and credit status',
-      table: 'customers'
-    },
   ]
-
-  useEffect(() => {
-    if (user?.factory_id) {
-      fetchReportStats()
-      fetchReportData()
-    }
-  }, [user?.factory_id, selectedReportType, selectedPeriod])
 
   const fetchReportStats = async () => {
     try {
@@ -212,7 +189,7 @@ export default function ReportsPage() {
     }
   }
 
-  const fetchReportData = async () => {
+  const fetchReportData = useCallback(async () => {
     if (!user?.factory_id) return
     
     setLoading(true)
@@ -251,7 +228,7 @@ export default function ReportsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [user?.factory_id, selectedReportType, selectedPeriod, customDateRange])
 
   const getDateFilter = () => {
     const now = new Date()
@@ -324,6 +301,14 @@ export default function ReportsPage() {
     }
   }
 
+  // Auto-fetch report data when report type or period changes
+  useEffect(() => {
+    if (user?.factory_id) {
+      fetchReportStats()
+      fetchReportData()
+    }
+  }, [user?.factory_id, fetchReportData])
+
   const generateReport = async () => {
     setGeneratingReport(true)
     try {
@@ -348,10 +333,10 @@ export default function ReportsPage() {
     const pageHeight = doc.internal.pageSize.getHeight()
     
     // Colors
-    const primaryColor = [245, 158, 11] // Amber-500
-    const secondaryColor = [59, 130, 246] // Blue-500
-    const textColor = [31, 41, 55] // Gray-800
-    const lightGray = [243, 244, 246] // Gray-100
+    const primaryColor = [245, 158, 11] as const // Amber-500
+    const secondaryColor = [59, 130, 246] as const // Blue-500
+    const textColor = [31, 41, 55] as const // Gray-800
+    const lightGray = [243, 244, 246] as const // Gray-100
     
     // Header Section with Company Branding
     doc.setFillColor(...primaryColor)
@@ -441,6 +426,30 @@ export default function ReportsPage() {
         return row
       })
       
+      // Add totals row for production and milk collection reports
+      if (selectedReportType === 'production' && reportData.length > 0) {
+        const totalMilk = reportData.reduce((sum, item) => sum + (Number(item.milk_used_liters) || 0), 0)
+        const totalCheese = reportData.reduce((sum, item) => sum + (Number(item.cheese_produced_kg) || 0), 0)
+        
+        // Create totals row matching the column structure
+        const totalsRow = displayColumns.map(col => {
+          if (col === 'batch_number') return 'TOTAL'
+          if (col === 'milk_used_liters') return totalMilk.toLocaleString()
+          if (col === 'cheese_produced_kg') return totalCheese.toLocaleString()
+          return ''
+        })
+        tableData.push(totalsRow)
+      } else if (selectedReportType === 'milk_collection' && reportData.length > 0) {
+        const totalLiters = reportData.reduce((sum, item) => sum + (Number(item.quantity_liters) || 0), 0)
+        
+        const totalsRow = displayColumns.map(col => {
+          if (col === 'collection_date') return 'TOTAL'
+          if (col === 'quantity_liters') return totalLiters.toLocaleString()
+          return ''
+        })
+        tableData.push(totalsRow)
+      }
+      
       doc.autoTable({
         head: [tableHeaders],
         body: tableData,
@@ -471,6 +480,25 @@ export default function ReportsPage() {
           6: { cellWidth: 15, halign: 'center' }
         },
         margin: { left: 14, right: 14 },
+        didDrawCell: function(data) {
+          // Make totals row bold and highlighted
+          if (data.section === 'body' && data.row.index === tableData.length - 1) {
+            if ((selectedReportType === 'production' || selectedReportType === 'milk_collection') && reportData.length > 0) {
+              doc.setFont('helvetica', 'bold')
+              doc.setFillColor(245, 158, 11, 0.1) // Light amber background
+            }
+          }
+        },
+        willDrawCell: function(data) {
+          // Highlight totals row
+          if (data.section === 'body' && data.row.index === tableData.length - 1) {
+            if ((selectedReportType === 'production' || selectedReportType === 'milk_collection') && reportData.length > 0) {
+              data.cell.styles.fontStyle = 'bold'
+              data.cell.styles.fillColor = [255, 249, 235] // Very light amber
+              data.cell.styles.textColor = [120, 53, 15] // Dark amber
+            }
+          }
+        },
         didDrawPage: function(data) {
           // Footer on each page
           const footerY = pageHeight - 20
@@ -487,8 +515,14 @@ export default function ReportsPage() {
       // Summary section after table
       const finalY = (doc as any).lastAutoTable.finalY + 20
       if (finalY < pageHeight - 60) {
+        // Calculate summary height based on report type
+        let summaryHeight = 25
+        if (selectedReportType === 'production' || selectedReportType === 'milk_collection') {
+          summaryHeight = 40 // More space for totals
+        }
+        
         doc.setFillColor(...lightGray)
-        doc.rect(14, finalY, pageWidth - 28, 25, 'F')
+        doc.rect(14, finalY, pageWidth - 28, summaryHeight, 'F')
         
         doc.setTextColor(...textColor)
         doc.setFontSize(10)
@@ -498,6 +532,28 @@ export default function ReportsPage() {
         doc.setFontSize(8)
         doc.text(`This report contains ${reportData.length} records for ${reportType?.name}`, 20, finalY + 16)
         doc.text(`Data filtered for period: ${selectedPeriod.replace('_', ' ')}`, 20, finalY + 21)
+        
+        // Add specific totals based on report type
+        if (selectedReportType === 'production' && reportData.length > 0) {
+          const totalMilk = reportData.reduce((sum, item) => sum + (Number(item.milk_used_liters) || 0), 0)
+          const totalCheese = reportData.reduce((sum, item) => sum + (Number(item.cheese_produced_kg) || 0), 0)
+          
+          doc.setFont('helvetica', 'bold')
+          doc.setTextColor(...secondaryColor)
+          doc.text('PRODUCTION TOTALS:', 20, finalY + 28)
+          doc.setFont('helvetica', 'normal')
+          doc.setTextColor(...textColor)
+          doc.text(`Total Milk Used: ${totalMilk.toLocaleString()} Liters  |  Total Cheese Produced: ${totalCheese.toLocaleString()} Kg`, 20, finalY + 35)
+        } else if (selectedReportType === 'milk_collection' && reportData.length > 0) {
+          const totalLiters = reportData.reduce((sum, item) => sum + (Number(item.quantity_liters) || 0), 0)
+          
+          doc.setFont('helvetica', 'bold')
+          doc.setTextColor(...secondaryColor)
+          doc.text('COLLECTION TOTALS:', 20, finalY + 28)
+          doc.setFont('helvetica', 'normal')
+          doc.setTextColor(...textColor)
+          doc.text(`Total Milk Collected: ${totalLiters.toLocaleString()} Liters`, 20, finalY + 35)
+        }
       }
     }
     
@@ -564,6 +620,35 @@ export default function ReportsPage() {
       return row
     })
     
+    // Add totals row for production and milk collection reports
+    if (selectedReportType === 'production' && reportData.length > 0) {
+      const totalMilk = reportData.reduce((sum, item) => sum + (Number(item.milk_used_liters) || 0), 0)
+      const totalCheese = reportData.reduce((sum, item) => sum + (Number(item.cheese_produced_kg) || 0), 0)
+      
+      const totalsRow = displayColumns.map(col => {
+        if (col === 'batch_number') return 'TOTAL'
+        if (col === 'milk_used_liters') return totalMilk
+        if (col === 'cheese_produced_kg') return totalCheese
+        return ''
+      })
+      
+      if (reportData[0]?.status) {
+        totalsRow.push('')
+      }
+      
+      dataRows.push(totalsRow)
+    } else if (selectedReportType === 'milk_collection' && reportData.length > 0) {
+      const totalLiters = reportData.reduce((sum, item) => sum + (Number(item.quantity_liters) || 0), 0)
+      
+      const totalsRow = displayColumns.map(col => {
+        if (col === 'collection_date') return 'TOTAL'
+        if (col === 'quantity_liters') return totalLiters
+        return ''
+      })
+      
+      dataRows.push(totalsRow)
+    }
+    
     // Combine all data
     const allData = [...headerRows, ...dataRows]
     
@@ -617,13 +702,12 @@ export default function ReportsPage() {
       if (selectedReportType === 'production' && reportData.length > 0) {
         const totalMilk = reportData.reduce((sum, item) => sum + (Number(item.milk_used_liters) || 0), 0)
         const totalCheese = reportData.reduce((sum, item) => sum + (Number(item.cheese_produced_kg) || 0), 0)
-        const avgQuality = reportData.reduce((sum, item) => sum + (Number(item.quality_score) || 0), 0) / reportData.length
         
         summaryData.push(
-          ['Total Milk Processed', `${totalMilk.toLocaleString()} Liters`],
+          ['Total Milk Used', `${totalMilk.toLocaleString()} Liters`],
           ['Total Cheese Produced', `${totalCheese.toLocaleString()} Kg`],
-          ['Average Quality Score', avgQuality.toFixed(2)],
-          ['Production Efficiency', totalMilk > 0 ? `${((totalCheese / totalMilk) * 100).toFixed(2)}%` : 'N/A']
+          ['Production Efficiency', totalMilk > 0 ? `${((totalCheese / totalMilk) * 100).toFixed(2)}%` : 'N/A'],
+          ['Total Production Batches', reportData.length]
         )
       } else if (selectedReportType === 'sales' && reportData.length > 0) {
         const totalRevenue = reportData.reduce((sum, item) => sum + (Number(item.total) || 0), 0)
@@ -729,13 +813,11 @@ export default function ReportsPage() {
   const getDisplayColumns = () => {
     switch (selectedReportType) {
       case 'production':
-        return ['batch_number', 'production_date', 'cheese_type', 'milk_used_liters', 'cheese_produced_kg', 'quality_score', 'status']
-      case 'sales':
-        return ['order_number', 'order_date', 'status', 'subtotal', 'tax', 'total', 'payment_status']
+        return ['batch_number', 'production_date', 'cheese_type', 'milk_used_liters', 'cheese_produced_kg', 'status']
       case 'expenses':
         return ['expense_number', 'category', 'expense_date', 'amount', 'tax', 'total', 'status']
       case 'milk_collection':
-        return ['collection_date', 'quantity_liters', 'price_per_liter', 'total_amount', 'quality_grade', 'temperature']
+        return ['collection_date', 'quantity_liters', 'price_per_liter', 'total_amount']
       default:
         return Object.keys(reportData[0] || {}).slice(0, 7)
     }
@@ -830,7 +912,6 @@ export default function ReportsPage() {
                   }`}
                   onClick={() => {
                     setSelectedReportType(type.id)
-                    setReportData([]) // Clear previous data
                   }}
                 >
                   <div className="flex items-center mb-3">
@@ -952,44 +1033,78 @@ export default function ReportsPage() {
               </Button>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    {getDisplayColumns().map(column => (
-                      <th key={column} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        {column.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                      </th>
-                    ))}
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {reportData.slice(0, 50).map((row, index) => ( // Limit to 50 rows for performance
-                    <tr key={row.id || index} className="hover:bg-gray-50">
-                      {getDisplayColumns().map(column => (
-                        <td key={column} className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {formatValue(column, row[column])}
-                        </td>
-                      ))}
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        {row.status && getStatusBadge(row.status)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              
-              {reportData.length > 50 && (
-                <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 text-center">
-                  <p className="text-sm text-gray-600">
-                    Showing first 50 of {reportData.length} records. Export to view all data.
-                  </p>
+            <>
+              {/* Production Summary for Production Reports */}
+              {selectedReportType === 'production' && reportData.length > 0 && (
+                <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Production Summary</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-white p-3 rounded-lg shadow-sm">
+                      <p className="text-xs text-gray-500 mb-1">Total Milk Used</p>
+                      <p className="text-2xl font-bold text-blue-600">
+                        {reportData.reduce((sum, item) => sum + (Number(item.milk_used_liters) || 0), 0).toLocaleString()}
+                        <span className="text-sm font-normal text-gray-500 ml-1">Liters</span>
+                      </p>
+                    </div>
+                    <div className="bg-white p-3 rounded-lg shadow-sm">
+                      <p className="text-xs text-gray-500 mb-1">Total Cheese Produced</p>
+                      <p className="text-2xl font-bold text-green-600">
+                        {reportData.reduce((sum, item) => sum + (Number(item.cheese_produced_kg) || 0), 0).toLocaleString()}
+                        <span className="text-sm font-normal text-gray-500 ml-1">Kg</span>
+                      </p>
+                    </div>
+                    <div className="bg-white p-3 rounded-lg shadow-sm">
+                      <p className="text-xs text-gray-500 mb-1">Conversion Efficiency</p>
+                      <p className="text-2xl font-bold text-purple-600">
+                        {(() => {
+                          const totalMilk = reportData.reduce((sum, item) => sum + (Number(item.milk_used_liters) || 0), 0)
+                          const totalCheese = reportData.reduce((sum, item) => sum + (Number(item.cheese_produced_kg) || 0), 0)
+                          return totalMilk > 0 ? ((totalCheese / totalMilk) * 100).toFixed(2) : '0'
+                        })()}
+                        <span className="text-sm font-normal text-gray-500 ml-1">%</span>
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
-            </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      {getDisplayColumns().map(column => (
+                        <th key={column} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          {column.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {reportData.slice(0, 50).map((row, index) => ( // Limit to 50 rows for performance
+                      <tr key={row.id || index} className="hover:bg-gray-50">
+                        {getDisplayColumns().map(column => (
+                          <td key={column} className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {column === 'status' || column === 'payment_status' ? (
+                              getStatusBadge(row[column])
+                            ) : (
+                              formatValue(column, row[column])
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                
+                {reportData.length > 50 && (
+                  <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 text-center">
+                    <p className="text-sm text-gray-600">
+                      Showing first 50 of {reportData.length} records. Export to view all data.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
